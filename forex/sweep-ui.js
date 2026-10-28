@@ -277,10 +277,14 @@ function draw15(p, s, tf) {
   const idx = t => all.findIndex(c => c[0] === t);
   const anc = Math.min(...[s.extT, s.choch && s.choch.refT, s.zone && s.zone.t].filter(v => v != null));
   const iAnc = isFinite(anc) ? all.findIndex(c => c[0] >= anc) : -1;
-  const iExit = s.tExit ? idx(s.tExit) : -1, i0 = Math.max(0, Math.min(start, iAnc >= 0 ? iAnc - 4 : start));
+  // an expired order has no exit time in the result: its cancelling candle is the first one at the expiry time
+  // (the start of the 7th higher-timeframe candle after the sweep, the engine's rule in sweep.js)
+  const tEnd = s.tExit || (s.status === "EXPIRED" && k0 >= 0 && k0 + 7 < c4.length ? (all.find(c => c[0] >= c4[k0 + 7][0]) || [null])[0] : null);
+  const iExit = tEnd ? idx(tEnd) : -1, i0 = Math.max(0, iAnc >= 0 ? iAnc - 4 : start);
   const i1 = iExit >= 0 ? iExit : n - 1;
   // default frame: the setup from the candle before the sweep candle to its exit (or now), with room on the right
-  const def = { a: Math.max(start, iAnc >= 0 ? Math.min(start, iAnc - 4) : start), b: Math.min(n + 3, i1 + Math.max(10, (i1 - start) * .25)) };
+  // default frame: from just before the setup (sweep extreme / CHoCH reference / zone) to its exit, or now
+  const def = { a: i0 - 4, b: Math.min(n + 3, i1 + Math.max(10, (i1 - i0) * .25)) };
   if (def.b - def.a < 30) def.b = Math.min(n + 3, def.a + 30);
   const k = base(cv, all, { key: openId + "|ltf", def, setup: { i0, i1 },
     levels: [w.level, s.ext, s.eq, s.choch && s.choch.level, s.watch && s.watch.level, s.zone && s.zone.lo, s.zone && s.zone.hi, s.sl, s.entry] });
@@ -332,7 +336,7 @@ function draw15(p, s, tf) {
   if (LY.orders) {
     if (s.eq != null) hline(k, s.eq, C.sec, "50%", Math.max(0, X(Math.max(0, idx(s.extT))) - step / 2), true, 1);
     if (w.target != null && (s.entry != null || s.choch)) hline(k, w.target, C.blue, "TP", 0, true);
-    if (s.order) drawOrder(k, all, s, d, col);
+    if (s.order) drawOrder(k, all, s, d, col, tEnd);
     else if (s.entry != null) { hline(k, s.entry, col, "Entry", 0, true); hline(k, s.sl, C.dn, "SL", 0, true); }   // data from before the order marks existed
   }
   finish(k, all, true, p, p.price);
@@ -341,10 +345,10 @@ function draw15(p, s, tf) {
 // order marks: pending limit (dashed, from the activation candle), simulated fill (solid arrow on the touching candle),
 // stop exit (red cross at the stop price), target exit (blue circle at the target price), cancelled order (grey, with the reason
 // on the candle that cancelled it); never before the order was active. Every mark can be tapped for the order details.
-function drawOrder(k, cs, s, d, col) {
+function drawOrder(k, cs, s, d, col, tEnd) {
   const { g, C, X, Y, step, plotW, padT, H, padB, cv } = k, o = s.order, at = t => cs.findIndex(c => c[0] >= t);
   const iA = at(o.activeT), xA = iA >= 0 ? X(iA) - step / 2 : X(cs.length - 1) + step / 2;
-  const iF = s.tFill ? cs.findIndex(c => c[0] === s.tFill) : -1, iE = s.tExit ? cs.findIndex(c => c[0] === s.tExit) : -1;
+  const iF = s.tFill ? cs.findIndex(c => c[0] === s.tFill) : -1, iE = tEnd ? cs.findIndex(c => c[0] === tEnd) : -1;
   const yE = Y(o.price), xF = iF >= 0 ? X(iF) : null, cancelled = o.state === "CANCELLED";
   const xEnd = cancelled && iE >= 0 ? X(iE) + step / 2 : plotW + 6;
   // stop line from activation (ends at the cancel candle for an order that never filled)
@@ -361,7 +365,7 @@ function drawOrder(k, cs, s, d, col) {
   if ((xF == null || xF - xA > 70) && (xF != null ? xF : xEnd) - xA > 40) label(k, pend, xA + 8, d === 1 ? yE + 13 : yE - 6, pendCol, "left");
   if (cancelled && iE >= 0) {           // the candle that cancelled the order, and why
     const c = cs[iE], why = { INVALIDATED: "Invalidated", MISSED: "Missed – TP first", EXPIRED: "Expired" }[s.status] || "Cancelled";
-    const yc = s.status === "INVALIDATED" ? Y(s.sl) : s.status === "MISSED" && s.sweep.target != null ? Y(s.sweep.target) : d === 1 ? Y(c[3]) + 8 : Y(c[2]) - 8;
+    const yc = s.status === "INVALIDATED" ? Y(s.sl) : s.status === "MISSED" && s.sweep.target != null ? Y(s.sweep.target) : yE;   // expired: where the order line ends
     g.save(); g.strokeStyle = C.sec; g.lineWidth = 2.2; g.beginPath(); g.moveTo(X(iE) - 5, yc - 5); g.lineTo(X(iE) + 5, yc + 5); g.moveTo(X(iE) + 5, yc - 5); g.lineTo(X(iE) - 5, yc + 5); g.stroke(); g.restore();
     label(k, why, X(iE), yc < padT + 24 ? yc + 18 : yc - 9, C.sec);
     Nav.hit(cv, { x: X(iE), y: yc, data: { kind: "order" } });
