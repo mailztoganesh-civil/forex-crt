@@ -81,8 +81,19 @@
   .charts { display:grid; gap:10px; grid-template-columns:minmax(0,1fr); }   /* fixed track: a canvas's pixel size must not widen the grid on high-DPI phones */
   .charts.two { grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr)); }
   .charts.two canvas { height:300px; }
+  .cnav { display:flex; gap:4px; margin:0 0 4px; overflow-x:auto; scrollbar-width:none; }
+  .cnav button { flex:0 0 auto; min-width:34px; height:30px; padding:0 9px; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; font-size:13px; font-weight:700; }
+  .cnav button.on { background:var(--blue); border-color:var(--blue); color:#fff; }
+  .charts > div { position:relative; }
+  .layers { margin:8px 0 6px; } .layers .chip { padding:4px 9px; font-size:12px; } .layers .chip:not(.on) { opacity:.65; text-decoration:line-through; }
+  .mpop { position:absolute; left:6px; right:6px; max-width:360px; z-index:3; background:var(--card); color:var(--ink); border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 8px 28px rgba(0,0,0,.28); padding:8px 10px; font-size:12px; }
+  .mpop > div { display:flex; justify-content:space-between; gap:10px; padding:2px 0; } .mpop > div span { color:var(--sec); } .mpop > div b { text-align:right; }
+  .mpop .x { float:right; border:0; background:none; color:var(--sec); font-size:15px; padding:0 0 4px 8px; }
+  .mpop .go { width:100%; margin:6px 0 4px; height:32px; border-radius:8px; border:0; background:var(--blue); color:#fff; font-weight:700; }
+  .mpop .muted { display:block; margin-top:4px; font-size:11px; }
   .cap { font-size:12px; font-weight:700; color:var(--sec); margin:0 2px 4px; }
-  canvas { width:100%; height:340px; display:block; border-radius:10px; background:var(--card); touch-action:pan-y; }
+  canvas { width:100%; height:340px; display:block; border-radius:10px; background:var(--card); touch-action:none; }
   .lv { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:6px; }
   .lv div { background:var(--tint); border-radius:10px; padding:8px 10px; font-size:12px; color:var(--sec); }
   .lv b { display:block; color:var(--ink); font-size:15px; font-variant-numeric:tabular-nums; }
@@ -219,6 +230,7 @@
       <b>6. Displacement</b> – the biggest 15m body from the extreme to the CHoCH, in 15m ATR(14).<br>
       <b>7. Entry zone</b> – the 15m FVG in that move (made by the biggest candle, at least 0.1 × ATR), else the order block (last opposite candle before the extreme). Entry = near edge of the zone, stop = sweep extreme, target = step 4.<br>
       <b>8. Status</b> – Sweeping → Sweep only → CHoCH → Entry ready → In trade → Target hit / Stopped. Before entry: Invalidated (beyond the stop), Missed (target first) or Expired (6 4H candles after the sweep).<br>
+      <b>Chart navigation</b> – pinch or use − / + to zoom, drag to scroll back in time, drag the price scale up/down to stretch prices, mouse wheel on a computer. <i>◎ Setup</i> frames the selected setup, <i>Fit</i> fits prices to the visible candles, <i>Auto</i> follows the visible candles, <i>⇥</i> goes to the latest candle, <i>↺</i> (or double-tap) resets. Tap a candle for its time and OHLC; tap an entry / exit mark for the order details. Navigation only changes the view – never the setups.<br>
       <b>Chart marks</b> – <i>pending limit</i>: dashed line with a hollow diamond, drawn from the moment the order is active (the close of the 15m candle after the CHoCH, never before the 4H sweep candle closed) – it is not a trade yet. <i>Simulated entry</i>: solid arrow (▲ BUY / ▼ SELL) on the first later candle whose range touches the limit, solid line from there. <i>Stop</i>: red ✕ at the stop price. <i>Target</i>: blue ✓ at the target price. * = stop and fill/target inside one candle; the order inside a candle is unknown, so it is counted as a stop (fill + target in one candle is not counted). Grey dashed line = order cancelled (invalidated, missed or expired).<br>
       <b>TTrades checklist</b> (his “ICT Entry Checklist” video) – stop raid (the 4H sweep), structure shift (the 15m CHoCH), discount / premium (the entry is below the 50% of the move from the sweep extreme for longs, above it for shorts), PD array (the FVG or order block) and solid R:R (≥ 2). Shown as n/5.<br>
       <b>★ A1</b> – the best setups: grade A and TTrades checklist 5/5 (shown with an A1 badge; the “★ A1 best” chip lists only these).<br>
@@ -243,6 +255,7 @@
 <div class="sheet" id="swSheet" hidden>
   <div class="panel" role="dialog" aria-modal="true" aria-labelledby="swTitle">
     <div class="hd"><h3 id="swTitle">EURUSD</h3><span class="badge" id="swBadge"></span><button class="x" id="swClose" type="button">Close</button></div>
+    <div class="chips layers" id="swLayers" aria-label="Chart layers"></div>
     <div class="charts two">
       <div><div class="cap" id="swCap1">4H – swing, sweep, back into range, target</div><canvas id="swCv1" aria-label="4H chart"></canvas></div>
       <div><div class="cap" id="swCap2">15m – CHoCH, displacement, entry zone</div><canvas id="swCv2" aria-label="15 minute chart"></canvas></div>
@@ -253,11 +266,12 @@
     <div class="muted" id="swWhy"></div>
   </div>
 </div>
-<script src="sweep.js?v=21"></script>
-<script src="live.js?v=21"></script>
-<script src="app.js?v=21"></script>
-<script src="sweep-ui.js?v=21"></script>
-<script src="export.js?v=21"></script>
+<script src="chartnav.js?v=22"></script>
+<script src="sweep.js?v=22"></script>
+<script src="live.js?v=22"></script>
+<script src="app.js?v=22"></script>
+<script src="sweep-ui.js?v=22"></script>
+<script src="export.js?v=22"></script>
 <script>
 if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>

@@ -284,11 +284,13 @@ function chart(p, r) {
   const maxN = split ? (W < 500 ? 16 : 30) : (W < 500 ? 26 : 50), minN = split ? 12 : (W < 500 ? 16 : 24);
   let s0 = Math.max(0, n - maxN);
   if (r.c1Back != null) s0 = Math.max(0, Math.min(n - 1 - r.c1Back - 5, n - minN));
-  const cs = all.slice(s0);
+  const cs = all;                                  // full history; s0.. is only the starting view (chartnav.js zooms / pans)
   if (cs.length < 3) return;
   const last = cs.length - 1, map = cMap(r, last, cs);
+  navArgs = [p, r];
   $("#cap1").textContent = `${TF_NAME[detail.tf]} (higher timeframe)`;
-  draw($("#cv"), p, r, cs, { from: map.C1 ?? last, intraday: detail.tf === "1H" || detail.tf === "4H", marks: marksOf(map) });
+  draw($("#cv"), p, r, cs, { from: map.C1 ?? last, intraday: detail.tf === "1H" || detail.tf === "4H", marks: marksOf(map),
+    nav: { key: detail.sym + "|" + detail.tf + "|" + split + "|htf", def: { a: s0, b: n + 4 }, setup: { i0: map.C1 ?? Math.max(0, last - 3), i1: last } } });
   if (!split) return;
   // lower timeframe: candles since the start of C1 (or the last 3 higher-TF candles)
   const [key, name] = LTF_OF[detail.tf];
@@ -315,7 +317,8 @@ function chart(p, r) {
   const starts = shown.map((x, j) => ({ k: x.k, i: j === 0 ? 0 : idxOf(x.t) }));
   const bands = starts.map((x, j) => ({ k: x.k, i0: x.i, i1: (j + 1 < starts.length ? starts[j + 1].i : lt.length) - 1 })).filter(b => b.k && b.i1 >= b.i0);
   if (first > 0) $("#cap2").textContent += ` (from ${secs[first].k === "inside" ? "the inside candles" : secs[first].k}; earlier candles not shown)`;
-  draw($("#cv2"), p, r, lt, { from: starts[0].i, intraday: key !== "D", bands, seps: starts.map(x => x.i), m1: r.m1 });
+  draw($("#cv2"), p, r, lt, { from: starts[0].i, intraday: key !== "D", bands, seps: starts.map(x => x.i), m1: r.m1,
+    nav: { key: detail.sym + "|" + detail.tf + "|ltf", def: { a: 0, b: lt.length + 4 }, setup: { i0: 0, i1: lt.length - 1 } } });
 }
 const FONT = "-apple-system,Segoe UI,Roboto,sans-serif";
 function draw(cv, p, r, cs, o) {
@@ -323,18 +326,18 @@ function draw(cv, p, r, cs, o) {
   const W = cv.clientWidth, H = cv.clientHeight;
   cv.width = W * dpr; cv.height = H * dpr;
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-  const C = { ink: css("--ink"), sec: css("--sec"), line: css("--line"), up: css("--green"), dn: css("--red"), blue: css("--blue"), amber: css("--amber"), tint: css("--tint") };
+  const C = { ink: css("--ink"), sec: css("--sec"), line: css("--line"), up: css("--green"), dn: css("--red"), blue: css("--blue"), amber: css("--amber"), tint: css("--tint"), card: css("--card") || "#fff" };
+  navCs[cv.id] = o.empty ? [] : cs;
   if (o.empty) { g.fillStyle = C.sec; g.font = "13px " + FONT; g.fillText(o.empty, 10, H / 2); return; }
   const last = cs.length - 1, M = o.marks || {};
   const padR = 64, padB = 22, padT = (o.marks || o.bands) ? 42 : 18, plotW = W - padR - 6, plotH = H - padB - padT;
   const lv = [r.t1, r.t2, r.inv, r.level, r.c1h, r.c1l, o.m1 && o.m1.level, o.m1 && o.m1.ext, r.q && r.q.keyLvl].filter(v => v != null);
-  let hi = Math.max(...cs.map(c => c[2]), ...lv), lo = Math.min(...cs.map(c => c[3]), ...lv);
-  const padY = (hi - lo) * 0.06 || hi * 0.001; hi += padY; lo -= padY;
-  const step = plotW / (cs.length + 4), bw = Math.max(1.5, step * 0.62);
-  const X = i => 6 + step * (i + 0.5), Y = v => padT + (hi - v) / (hi - lo) * plotH;
+  Nav.view(cv, o.nav.key, cs.length, o.nav.def, o.nav.setup);
+  const nf = Nav.frame(cv, cs, { padT, plotW, plotH }, lv), { X, Y, step, hi, lo } = nf, bw = Math.max(1.5, Math.min(18, step * 0.62));
   const ROLE = { C1: C.amber, C2: C.dn, C3: C.blue, C4: C.blue, inside: C.sec };
   g.font = "11px " + FONT; g.fillStyle = C.sec; g.strokeStyle = C.line; g.lineWidth = 1;
   for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4, y = Y(v); g.beginPath(); g.moveTo(0, y); g.lineTo(plotW + 6, y); g.stroke(); g.fillText(fmt(p, v), plotW + 10, y + 4); }
+  g.save(); g.beginPath(); g.rect(0, 0, plotW + 6, H - padB); g.clip();      // everything below stays inside the plot
   const x0 = X(o.from) - step / 2;
   if (r.c1h != null) { g.fillStyle = C.tint; g.globalAlpha = .9; g.fillRect(x0, Y(r.c1h), plotW + 6 - x0, Y(r.c1l) - Y(r.c1h)); g.globalAlpha = 1; }
   // coloured columns behind the CRT candles: C1 amber, C2 red, C3/C4 purple
@@ -349,6 +352,7 @@ function draw(cv, p, r, cs, o) {
   g.restore();
   const inIns = i => M.ins && i >= M.ins[0] && i <= M.ins[1];
   cs.forEach((c, i) => {
+    if (i < nf.i0 || i > nf.i1) return;
     const up = c[4] >= c[1]; g.strokeStyle = g.fillStyle = up ? C.up : C.dn;
     g.globalAlpha = inIns(i) ? .4 : 1;              // candles inside C1 are noise: dim them
     g.beginPath(); g.moveTo(X(i), Y(c[2])); g.lineTo(X(i), Y(c[3])); g.stroke();
@@ -442,18 +446,25 @@ function draw(cv, p, r, cs, o) {
   }
   (o.bands || []).forEach(b => { const x1 = X(b.i0) - step / 2, x2 = X(b.i1) + step / 2;
     pill(b.k === "inside" ? "inside C1" : b.k, (x1 + x2) / 2, ROLE[b.k] || C.sec, b.k === "inside", x1, x2); });
-  g.font = "10px " + FONT; g.fillStyle = C.sec;
-  const every = Math.max(1, Math.ceil(cs.length / 4));
-  cs.forEach((c, i) => { if (i % every === 1 || every === 1) { const d = new Date(c[0] * 1000);
-    const t = o.intraday ? d.toLocaleString([], { day: "2-digit", month: "short" }) + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") : d.toLocaleDateString([], { day: "2-digit", month: "short" });
-    g.fillText(t, X(i), H - 6); } });
+  g.restore();                                     // end of the plot clip
+  const hm = d => String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  const fT = ts => { const d = new Date(ts * 1000); return o.intraday ? d.toLocaleString([], { day: "2-digit", month: "short" }) + " " + hm(d) : d.toLocaleDateString([], { day: "2-digit", month: "short" }); };
+  Nav.timeAxis(g, cs, X, nf.i0, nf.i1, H, fT, C.sec);
   g.textAlign = "left";
   tags.push([Y(r.price), C.blue, fmt(p, cs[last] ? cs[last][4] : r.price)]);
-  tags.sort((a, b) => a[0] - b[0]);
-  for (let k = 1; k < tags.length; k++) if (tags[k][0] - tags[k - 1][0] < 17) tags[k][0] = tags[k - 1][0] + 17;
+  const tg = tags.filter(x => x[0] > padT - 10 && x[0] < H - padB + 6).sort((a, b) => a[0] - b[0]);
+  for (let k = 1; k < tg.length; k++) if (tg[k][0] - tg[k - 1][0] < 17) tg[k][0] = tg[k - 1][0] + 17;
   g.font = "bold 10px " + FONT;
-  tags.forEach(([y, col, txt]) => { g.fillStyle = col; g.fillRect(plotW + 6, y - 8, padR, 16); g.fillStyle = "#fff"; g.fillText(txt, plotW + 10, y + 4); });
+  tg.forEach(([y, col, txt]) => { g.fillStyle = col; g.fillRect(plotW + 6, y - 8, padR, 16); g.fillStyle = "#fff"; g.fillText(txt, plotW + 10, y + 4); });
+  const fT2 = ts => { const d = new Date(ts * 1000); return d.toLocaleString([], { day: "2-digit", month: "short" }) + (o.intraday ? " " + hm(d) : ""); };
+  Nav.cross(cv, g, cs, { X, Y, C, plotW, H, padB, padT, fmtP: v => fmt(p, v), fmtT: fT2 });
 }
+
+/* ---------- chart navigation (chartnav.js) ---------- */
+let navArgs = null; const navCs = {};
+const navRedraw = () => { if (detail && navArgs) chart(navArgs[0], navArgs[1]); };
+Nav.attach($("#cv"), { redraw: navRedraw, candles: () => navCs.cv });
+Nav.attach($("#cv2"), { redraw: navRedraw, candles: () => navCs.cv2 });
 
 /* ---------- events ---------- */
 $("#tfSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; tf = b.dataset.tf; ls.set("fx-tf", tf); render(); });

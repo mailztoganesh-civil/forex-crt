@@ -105,8 +105,8 @@ function matrix() {
 
 /* ---------- detail ---------- */
 function find(id) { return allRows().find(x => x.id === id); }
-function openDetail(id) { openId = id; $("#swSheet").hidden = false; drawDetail(); }
-function closeDetail() { openId = null; $("#swSheet").hidden = true; }
+function openDetail(id) { openId = id; hidePops(); $("#swSheet").hidden = false; drawDetail(); }
+function closeDetail() { openId = null; hidePops(); $("#swSheet").hidden = true; }
 function drawDetail() {
   const x = find(openId); if (!x) return closeDetail();
   const { p, s, tf } = x, w = s.sweep, d = s.dir, up = d === 1, T = TFN[tf], LT = LTFN[tf];
@@ -139,7 +139,7 @@ function drawDetail() {
   if (s.tFill || s.tExit) L.push(["Note", '<span class="muted">Simulated from ' + LT + ' high/low only; the order of events inside one candle is not known.</span>']);
   $("#swLv").innerHTML = L.map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join("");
   $("#swWhy").textContent = why(s, T, LT);
-  draw4h(p, s, tf); draw15(p, s, tf);
+  layersBar(); draw4h(p, s, tf); draw15(p, s, tf);
 }
 function why(s, T, LT) {
   const w = s.sweep, side = s.dir === 1 ? "low" : "high";
@@ -154,25 +154,34 @@ function why(s, T, LT) {
 }
 
 /* ---------- charts ---------- */
-function base(cv, cs, levels) {
+// Both charts draw the FULL candle history; chartnav.js decides which part is on screen (zoom / pan / price scale).
+// Layers can be switched off one by one; the selected setup is drawn at full strength, other setups of the pair faded.
+const LAYERS = [["sweep", "Sweeps"], ["choch", "CHoCH"], ["fvg", "FVG"], ["ob", "Order block"], ["orders", "Entry / SL / TP"], ["hist", "Other setups"], ["crt", "CRT levels"]];
+let LY = Object.assign({ sweep: true, choch: true, fvg: true, ob: true, orders: true, hist: true, crt: false }, ls.get("sw-layers", {}));
+const cur = { htf: [], ltf: [] };
+function layersBar() {
+  $("#swLayers").innerHTML = LAYERS.map(([k, n]) => `<button type="button" class="chip${LY[k] ? " on" : ""}" data-ly="${k}" aria-pressed="${LY[k]}">${n}</button>`).join("");
+}
+function drawCharts() { const x = openId && find(openId); if (!x) return; draw4h(x.p, x.s, x.tf); draw15(x.p, x.s, x.tf); }
+const hm = t => { const z = new Date(t * 1000); return String(z.getHours()).padStart(2, "0") + ":" + String(z.getMinutes()).padStart(2, "0"); };
+function base(cv, cs, o) {
   const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
   cv.width = W * dpr; cv.height = H * dpr;
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-  const C = { ink: css("--ink"), sec: css("--sec"), line: css("--line"), up: css("--green"), dn: css("--red"), blue: css("--blue"), amber: css("--amber"), tint: css("--tint") };
+  const C = { ink: css("--ink"), sec: css("--sec"), line: css("--line"), up: css("--green"), dn: css("--red"), blue: css("--blue"), amber: css("--amber"), tint: css("--tint"), card: css("--card") || "#fff" };
   const padR = 64, padB = 22, padT = 18, plotW = W - padR - 6, plotH = H - padB - padT;
-  const lv = levels.filter(v => v != null && isFinite(v));
-  let hi = Math.max(...cs.map(c => c[2]), ...lv), lo = Math.min(...cs.map(c => c[3]), ...lv);
-  const pad = (hi - lo) * 0.06 || hi * 0.001; hi += pad; lo -= pad;
-  const step = plotW / (cs.length + 3), bw = Math.max(1.2, step * 0.62);
-  const X = i => 6 + step * (i + 0.5), Y = v => padT + (hi - v) / (hi - lo) * plotH;
+  Nav.view(cv, o.key, cs.length, o.def, o.setup);
+  const f = Nav.frame(cv, cs, { padT, plotW, plotH }, o.levels);
+  const bw = Math.max(1.2, Math.min(18, f.step * 0.62));
   g.font = "11px -apple-system,Segoe UI,Roboto,sans-serif"; g.strokeStyle = C.line; g.fillStyle = C.sec; g.lineWidth = 1;
-  return { g, C, W, H, padT, padB, plotW, step, bw, X, Y, lo, hi, tags: [] };
+  return { g, C, W, H, padT, padB, plotW, plotH, step: f.step, bw, X: f.X, Y: f.Y, lo: f.lo, hi: f.hi, i0: f.i0, i1: f.i1, tags: [], cv };
 }
+function clip(k) { const { g } = k; g.save(); g.beginPath(); g.rect(0, 0, k.plotW + 6, k.H - k.padB); g.clip(); }
 function candles(k, cs, fade) {
   const { g, C, X, Y, bw } = k;
-  cs.forEach((c, i) => { const up = c[4] >= c[1]; g.globalAlpha = fade && fade(i) ? 0.35 : 1; g.strokeStyle = g.fillStyle = up ? C.up : C.dn;
+  for (let i = k.i0; i <= k.i1; i++) { const c = cs[i], up = c[4] >= c[1]; g.globalAlpha = fade && fade(i) ? 0.35 : 1; g.strokeStyle = g.fillStyle = up ? C.up : C.dn;
     g.beginPath(); g.moveTo(X(i), Y(c[2])); g.lineTo(X(i), Y(c[3])); g.stroke();
-    const y1 = Y(Math.max(c[1], c[4])), y2 = Y(Math.min(c[1], c[4])); g.fillRect(X(i) - bw / 2, y1, bw, Math.max(1, y2 - y1)); });
+    const y1 = Y(Math.max(c[1], c[4])), y2 = Y(Math.min(c[1], c[4])); g.fillRect(X(i) - bw / 2, y1, bw, Math.max(1, y2 - y1)); }
   g.globalAlpha = 1;
 }
 function grid(k, p) {
@@ -182,138 +191,182 @@ function grid(k, p) {
 }
 function hline(k, v, col, txt, x0, dash, width) {
   if (v == null) return; const { g, Y, plotW } = k, y = Y(v);
-  g.save(); g.strokeStyle = col; g.lineWidth = width || 1.4; g.setLineDash(dash ? [5, 4] : []); g.beginPath(); g.moveTo(x0, y); g.lineTo(plotW + 6, y); g.stroke(); g.restore();
-  if (txt) k.tags.push([y, col, txt]);
+  g.save(); g.strokeStyle = col; g.lineWidth = width || 1.4; g.setLineDash(dash ? [5, 4] : []); g.beginPath(); g.moveTo(Math.min(x0, plotW + 6), y); g.lineTo(plotW + 6, y); g.stroke(); g.restore();
+  if (txt && x0 < k.plotW) k.tags.push([y, col, txt]);
 }
 function label(k, txt, x, y, col, align) {
+  if (x < -30 || x > k.plotW + 30) return;          // its candle is off screen: no label pinned to the edge
   const { g } = k; g.save(); g.font = "bold 10px -apple-system,Segoe UI,Roboto,sans-serif"; g.fillStyle = col; g.textAlign = align || "center";
   const wd = g.measureText(txt).width, lo = (align === "left" ? 0 : align === "right" ? wd : wd / 2) + 2, hi = k.plotW + 4 - (align === "left" ? wd : align === "right" ? 0 : wd / 2);
   g.fillText(txt, Math.max(lo, Math.min(hi, x)), y); g.restore();     // keep labels inside the plot
 }
 function finish(k, cs, intraday, p, price) {
-  const { g, C, X, H, plotW } = k;
-  g.font = "10px -apple-system,Segoe UI,Roboto,sans-serif"; g.fillStyle = C.sec; g.textAlign = "center";
-  const every = Math.max(1, Math.ceil(cs.length / 4));
-  cs.forEach((c, i) => { if (i % every === 1 || every === 1) { const d = new Date(c[0] * 1000);
-    g.fillText(d.toLocaleDateString([], { day: "2-digit", month: "short" }) + (intraday ? " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") : ""), X(i), H - 6); } });
+  const { g, C, X, H, plotW, padT, padB } = k;
+  g.restore();                                       // end of the plot clip
+  const fT = t => { const d = new Date(t * 1000); return d.toLocaleDateString([], { day: "2-digit", month: "short" }) + (intraday ? " " + hm(t) : ""); };
+  Nav.timeAxis(g, cs, X, k.i0, k.i1, H, fT, C.sec);
   g.textAlign = "left";
   if (price != null) k.tags.push([k.Y(price), C.blue, fmt(p, price)]);
-  k.tags.sort((a, b) => a[0] - b[0]);
-  for (let i = 1; i < k.tags.length; i++) if (k.tags[i][0] - k.tags[i - 1][0] < 17) k.tags[i][0] = k.tags[i - 1][0] + 17;
+  const tg = k.tags.filter(t => t[0] > padT - 10 && t[0] < H - padB + 6).sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < tg.length; i++) if (tg[i][0] - tg[i - 1][0] < 17) tg[i][0] = tg[i - 1][0] + 17;
   g.font = "bold 10px -apple-system,Segoe UI,Roboto,sans-serif";
-  k.tags.forEach(([y, col, txt]) => { g.fillStyle = col; g.fillRect(plotW + 6, y - 8, 64, 16); g.fillStyle = "#fff"; g.fillText(txt, plotW + 10, y + 4); });
+  tg.forEach(([y, col, txt]) => { g.fillStyle = col; g.fillRect(plotW + 6, y - 8, 64, 16); g.fillStyle = "#fff"; g.fillText(txt, plotW + 10, y + 4); });
+  Nav.cross(k.cv, g, cs, { X, Y: k.Y, C, plotW, H, padB, padT, fmtP: v => fmt(p, v), fmtT: t => when(t) });
 }
+function others(p, s, tf) { return rows(tf).filter(x => x.p === p && x.s !== s && x.s.sweep.t !== s.sweep.t); }
 function draw4h(p, s, tf) {
   const cv = $("#swCv1"), all = htfCandles(p, tf), w = s.sweep, d = s.dir, T = TFN[tf];
+  cur.htf = all;
   if (all.length < 5) return;
-  const iSwAll = all.findIndex(c => c[0] === w.swingT);
-  // last 40 candles; reach further back (up to 60) so the swing candle itself is on the chart
+  const n = all.length, iW = all.findIndex(c => c[0] === w.swingT), iS = all.findIndex(c => c[0] === w.t);
+  // default frame: the swing candle (or the last 26/40 candles) up to now - the old fixed slice, now the starting view
   const N = cv.clientWidth < 500 ? 26 : 40;
-  let start = Math.max(0, all.length - N);
-  if (iSwAll >= 0 && iSwAll - 3 < start) start = Math.max(0, iSwAll - 3, all.length - Math.round(N * 1.5));
-  const cs = all.slice(start), idx = t => cs.findIndex(c => c[0] === t);
-  const iS = idx(w.t), iW = idx(w.swingT);
-  const k = base(cv, cs, [w.level, w.ext, w.target, s.entry, s.sl]); const { g, C, X, Y, step, plotW, padT, H, padB } = k;
+  let start = Math.max(0, n - N);
+  if (iW >= 0 && iW - 3 < start) start = Math.max(0, iW - 3, n - Math.round(N * 1.5));
+  let iEnd = n - 1; if (s.tExit) { for (let i = 0; i < n; i++) if (all[i][0] <= s.tExit) iEnd = i; }
+  const setup = { i0: iW >= 0 ? iW : Math.max(0, iS), i1: Math.max(iS, iEnd) };
+  const k = base(cv, all, { key: openId + "|htf", def: { a: start, b: n + 3 }, setup, levels: [w.level, w.ext, w.target, s.entry, s.sl] });
+  const { g, C, X, Y, step, plotW, padT, H, padB } = k;
   const col = d === 1 ? C.up : C.dn;
-  grid(k, p);
+  grid(k, p); clip(k);
   if (iS >= 0) { g.save(); g.globalAlpha = .18; g.fillStyle = C.amber; g.fillRect(X(iS) - step / 2, padT - 4, step, H - padB - padT + 4); g.restore(); }
-  candles(k, cs);
-  // swing level: solid from the swing candle to the sweep candle, dashed afterwards
-  const xs = iW >= 0 ? X(iW) : 0, xe = iS >= 0 ? X(iS) + step / 2 : plotW + 6;
-  g.save(); g.strokeStyle = C.amber; g.lineWidth = 2; g.beginPath(); g.moveTo(xs, Y(w.level)); g.lineTo(xe, Y(w.level)); g.stroke();
-  g.setLineDash([4, 4]); g.lineWidth = 1.2; g.beginPath(); g.moveTo(xe, Y(w.level)); g.lineTo(plotW + 6, Y(w.level)); g.stroke(); g.restore();
-  if (iW >= 0) { g.fillStyle = C.amber; g.beginPath(); g.arc(X(iW), Y(w.level), 3.5, 0, 7); g.fill(); }
-  const right = xs > plotW * 0.55;          // keep the label clear of the price axis
-  label(k, `${T} swing ${d === 1 ? "low" : "high"}`, right ? xs - 6 : xs + 4, d === 1 ? Y(w.level) + 13 : Y(w.level) - 6, C.amber, right ? "right" : "left");
-  k.tags.push([Y(w.level), C.amber, `${T} level`]);
-  if (iS >= 0) {           // the part of the sweep candle beyond the level
-    g.save(); g.strokeStyle = C.dn; g.lineWidth = Math.max(3, k.bw * .35); g.lineCap = "round"; g.beginPath(); g.moveTo(X(iS), Y(w.level)); g.lineTo(X(iS), Y(w.ext)); g.stroke(); g.restore();
-    g.fillStyle = C.dn; g.beginPath(); g.arc(X(iS), Y(w.ext), 4, 0, 7); g.fill();
-    label(k, "Sweep", X(iS) + 7, d === 1 ? Y(w.ext) + 4 : Y(w.ext) + 4, C.dn, "left");
-    const c = cs[iS];
-    label(k, w.live ? "still open" : "back inside ✓", X(iS), d === 1 ? Math.max(padT + 8, Y(c[2]) - 6) : Math.min(H - padB - 4, Y(c[3]) + 14), w.live ? C.amber : col);
+  candles(k, all);
+  if (LY.crt) { const r = p.tf && p.tf[tf]; if (r && r.c1h != null) { hline(k, r.c1h, C.sec, "CRT H", 0, true, 1); hline(k, r.c1l, C.sec, "CRT L", 0, true, 1); } }
+  if (LY.hist) for (const x of others(p, s, tf)) {     // other sweeps of this pair: faded dot at their sweep extreme
+    const j = all.findIndex(c => c[0] === x.s.sweep.t); if (j < 0) continue;
+    g.save(); g.globalAlpha = .35; g.fillStyle = x.s.dir === 1 ? C.up : C.dn; g.beginPath(); g.arc(X(j), Y(x.s.sweep.ext), 4, 0, 7); g.fill(); g.restore();
+    Nav.hit(cv, { x: X(j), y: Y(x.s.sweep.ext), data: { kind: "hist", id: x.id } });
   }
-  if (w.target != null) hline(k, w.target, C.blue, "TP", iS >= 0 ? X(iS) : 0, false);
-  if (s.order) {            // from the higher-timeframe candle in which the order became active
-    let iA = -1; for (let i = 0; i < cs.length; i++) if (cs[i][0] <= s.order.activeT) iA = i;
-    const x0 = iA >= 0 ? X(iA) - step / 2 : 0, filled = s.order.state === "FILLED";
-    hline(k, s.entry, col, filled ? "Entry" : s.order.side + " LMT", x0, !filled, filled ? 1.6 : 1.3); hline(k, s.sl, C.dn, "SL", x0, true);
-  } else if (s.entry != null) { hline(k, s.entry, col, "Entry", 0, true); hline(k, s.sl, C.dn, "SL", 0, true); }
-  finish(k, cs, tf !== "D", p, p.price);
+  if (LY.sweep) {
+    // swing level: solid from the swing candle to the sweep candle, dashed afterwards
+    const xs = iW >= 0 ? X(iW) : X(0), xe = iS >= 0 ? X(iS) + step / 2 : plotW + 6;
+    g.save(); g.strokeStyle = C.amber; g.lineWidth = 2; g.beginPath(); g.moveTo(xs, Y(w.level)); g.lineTo(xe, Y(w.level)); g.stroke();
+    g.setLineDash([4, 4]); g.lineWidth = 1.2; g.beginPath(); g.moveTo(xe, Y(w.level)); g.lineTo(plotW + 6, Y(w.level)); g.stroke(); g.restore();
+    if (iW >= 0) { g.fillStyle = C.amber; g.beginPath(); g.arc(X(iW), Y(w.level), 3.5, 0, 7); g.fill(); }
+    const right = xs > plotW * 0.55;
+    label(k, `${T} swing ${d === 1 ? "low" : "high"}`, right ? xs - 6 : xs + 4, d === 1 ? Y(w.level) + 13 : Y(w.level) - 6, C.amber, right ? "right" : "left");
+    k.tags.push([Y(w.level), C.amber, `${T} level`]);
+    if (iS >= 0) {           // the part of the sweep candle beyond the level
+      g.save(); g.strokeStyle = C.dn; g.lineWidth = Math.max(3, k.bw * .35); g.lineCap = "round"; g.beginPath(); g.moveTo(X(iS), Y(w.level)); g.lineTo(X(iS), Y(w.ext)); g.stroke(); g.restore();
+      g.fillStyle = C.dn; g.beginPath(); g.arc(X(iS), Y(w.ext), 4, 0, 7); g.fill();
+      label(k, "Sweep", X(iS) + 7, Y(w.ext) + 4, C.dn, "left");
+      const c = all[iS];
+      label(k, w.live ? "still open" : "back inside ✓", X(iS), d === 1 ? Math.max(padT + 8, Y(c[2]) - 6) : Math.min(H - padB - 4, Y(c[3]) + 14), w.live ? C.amber : col);
+      Nav.hit(cv, { x: X(iS), y: Y(w.ext), data: { kind: "order" } });
+    }
+  }
+  if (LY.orders) {
+    if (w.target != null) hline(k, w.target, C.blue, "TP", iS >= 0 ? X(iS) : 0, false);
+    if (s.order) {            // from the higher-timeframe candle in which the order became active
+      let iA = -1; for (let i = 0; i < n; i++) if (all[i][0] <= s.order.activeT) iA = i;
+      const x0 = iA >= 0 ? X(iA) - step / 2 : 0, filled = s.order.state === "FILLED", oc = s.order.state === "CANCELLED" ? C.sec : col;
+      hline(k, s.entry, oc, filled ? "Entry" : s.order.state === "CANCELLED" ? "Cancelled" : s.order.side + " LMT", x0, !filled, filled ? 1.6 : 1.3); hline(k, s.sl, C.dn, "SL", x0, true);
+    } else if (s.entry != null) { hline(k, s.entry, col, "Entry", 0, true); hline(k, s.sl, C.dn, "SL", 0, true); }
+  }
+  finish(k, all, tf !== "D", p, p.price);
 }
 function draw15(p, s, tf) {
   const cv = $("#swCv2"), all = ltfCandles(p, tf), w = s.sweep, d = s.dir, T = TFN[tf], LT = LTFN[tf];
-  const c4 = htfCandles(p, tf);
+  cur.ltf = all;
+  const c4 = htfCandles(p, tf), n = all.length;
   const k0 = c4.findIndex(c => c[0] === w.t), tPrev = k0 > 0 ? c4[k0 - 1][0] : w.t - SEC[tf];
   let start = all.findIndex(c => c[0] >= tPrev);
-  if (start < 0 || all.length - start < 3) { const k = base(cv, all.length ? all.slice(-20) : [[0, 1, 1, 1, 1]], []); k.g.fillStyle = k.C.sec; k.g.fillText(`No ${LT} candles for this sweep in the current data.`, 10, k.H / 2); return; }
-  if (all.length - start > 190) {          // trim old candles, but never past the start of the setup (extreme, CHoCH reference, zone)
-    const anc = Math.min(...[s.extT, s.choch && s.choch.refT, s.zone && s.zone.t].filter(v => v != null)), ia = isFinite(anc) ? all.findIndex(c => c[0] >= anc) : -1;
-    start = Math.max(start, Math.min(all.length - 190, ia >= 0 ? ia - 4 : all.length));
-  }
-  const cs = all.slice(start), idx = t => cs.findIndex(c => c[0] === t);
-  const k = base(cv, cs, [w.level, s.ext, s.eq, s.choch && s.choch.level, s.watch && s.watch.level, s.zone && s.zone.lo, s.zone && s.zone.hi, s.sl, s.entry]);
+  if (start < 0 || n - start < 3) {
+    const dpr = window.devicePixelRatio || 1; cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr; const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, cv.clientWidth, cv.clientHeight); g.fillStyle = css("--sec"); g.font = "13px -apple-system,Segoe UI,Roboto,sans-serif"; g.fillText(`No ${LT} candles for this sweep in the current data.`, 10, cv.clientHeight / 2); return; }
+  const idx = t => all.findIndex(c => c[0] === t);
+  const anc = Math.min(...[s.extT, s.choch && s.choch.refT, s.zone && s.zone.t].filter(v => v != null));
+  const iAnc = isFinite(anc) ? all.findIndex(c => c[0] >= anc) : -1;
+  const iExit = s.tExit ? idx(s.tExit) : -1, i0 = Math.max(0, Math.min(start, iAnc >= 0 ? iAnc - 4 : start));
+  const i1 = iExit >= 0 ? iExit : n - 1;
+  // default frame: the setup from the candle before the sweep candle to its exit (or now), with room on the right
+  const def = { a: Math.max(start, iAnc >= 0 ? Math.min(start, iAnc - 4) : start), b: Math.min(n + 3, i1 + Math.max(10, (i1 - start) * .25)) };
+  if (def.b - def.a < 30) def.b = Math.min(n + 3, def.a + 30);
+  const k = base(cv, all, { key: openId + "|ltf", def, setup: { i0, i1 },
+    levels: [w.level, s.ext, s.eq, s.choch && s.choch.level, s.watch && s.watch.level, s.zone && s.zone.lo, s.zone && s.zone.hi, s.sl, s.entry] });
   const { g, C, X, Y, step, plotW, padT, H, padB } = k, col = d === 1 ? C.up : C.dn;
-  grid(k, p);
+  grid(k, p); clip(k);
   // higher-timeframe candle boundaries; the sweep candle is shaded
   for (let i = 0; i < c4.length; i++) {
-    const t = c4[i][0], a = cs.findIndex(c => c[0] >= t); if (a < 0) continue;
-    const bEnd = i + 1 < c4.length ? cs.findIndex(c => c[0] >= c4[i + 1][0]) : -1, x1 = X(a) - step / 2, x2 = (bEnd < 0 ? X(cs.length - 1) : X(bEnd)) - step / 2;
-    if (t === w.t) { g.save(); g.globalAlpha = .14; g.fillStyle = C.amber; g.fillRect(x1, padT - 4, Math.max(2, x2 - x1), H - padB - padT + 4); g.restore(); label(k, `${T} sweep candle`, (x1 + x2) / 2, padT + 2, C.amber); }
+    const t = c4[i][0], a = all.findIndex(c => c[0] >= t); if (a < 0 || a < k.i0 - 400 || a > k.i1 + 1) continue;
+    const bEnd = i + 1 < c4.length ? all.findIndex(c => c[0] >= c4[i + 1][0]) : -1, x1 = X(a) - step / 2, x2 = (bEnd < 0 ? X(n - 1) + step / 2 : X(bEnd) - step / 2);
+    if (t === w.t) { g.save(); g.globalAlpha = .14; g.fillStyle = C.amber; g.fillRect(x1, padT - 4, Math.max(2, x2 - x1), H - padB - padT + 4); g.restore(); label(k, `${T} sweep candle`, Math.max(x1, 0) / 2 + Math.min(x2, plotW) / 2, padT + 2, C.amber); }
     g.save(); g.strokeStyle = C.sec; g.globalAlpha = .45; g.setLineDash([3, 4]); g.beginPath(); g.moveTo(x1, padT - 4); g.lineTo(x1, H - padB); g.stroke(); g.restore();
   }
-  // entry zone (behind the candles)
-  if (s.zone) {
-    const iz = Math.max(0, idx(s.zone.t)), x1 = X(iz) - step / 2;
-    g.save(); g.globalAlpha = .16; g.fillStyle = C.blue; g.fillRect(x1, Y(s.zone.hi), plotW + 6 - x1, Y(s.zone.lo) - Y(s.zone.hi)); g.restore();
-    g.save(); g.strokeStyle = C.blue; g.lineWidth = 1; g.strokeRect(x1, Y(s.zone.hi), plotW + 6 - x1, Y(s.zone.lo) - Y(s.zone.hi)); g.restore();
+  // entry zone (behind the candles), faint from its formation candle
+  if (s.zone && LY[s.zone.type === "FVG" ? "fvg" : "ob"]) {
+    const iz = Math.max(0, idx(s.zone.t)), x1 = X(iz) - step / 2, xEnd = s.order && s.order.state === "CANCELLED" && iExit >= 0 ? X(iExit) + step / 2 : plotW + 6;
+    g.save(); g.globalAlpha = .13; g.fillStyle = C.blue; g.fillRect(x1, Y(s.zone.hi), xEnd - x1, Y(s.zone.lo) - Y(s.zone.hi)); g.restore();
+    g.save(); g.strokeStyle = C.blue; g.globalAlpha = .7; g.lineWidth = 1; g.strokeRect(x1, Y(s.zone.hi), xEnd - x1, Y(s.zone.lo) - Y(s.zone.hi)); g.restore();
     label(k, s.zone.type, x1 + 4, Y(s.zone.hi) - 4, C.blue, "left");
   }
-  candles(k, cs);
-  hline(k, w.level, C.amber, `${T} level`, 0, true, 1.2);
-  const iX = s.extT ? idx(s.extT) : -1;
-  if (iX >= 0) { g.fillStyle = C.dn; g.beginPath(); g.arc(X(iX), Y(s.ext), 4, 0, 7); g.fill(); label(k, "Sweep", X(iX), d === 1 ? Y(s.ext) + 15 : Y(s.ext) - 8, C.dn); }
-  if (!s.choch && s.watch) {             // no CHoCH yet: the 15m level that has to break
-    const iR = idx(s.watch.t), y = Y(s.watch.level);
-    g.save(); g.strokeStyle = col; g.lineWidth = 1.4; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(iR >= 0 ? X(iR) : 0, y); g.lineTo(plotW + 6, y); g.stroke(); g.restore();
-    label(k, "CHoCH level", iR >= 0 ? X(iR) + 4 : 4, d === 1 ? y - 6 : y + 14, col, "left"); k.tags.push([y, col, "CHoCH?"]);
+  candles(k, all);
+  if (LY.hist) for (const x of others(p, s, tf)) {   // other setups of this pair: faded fill arrows / exit dots, tap to open
+    const o = x.s;
+    if (o.tFill) { const j = idx(o.tFill); if (j >= 0) { const c = all[j], y = o.dir === 1 ? Y(c[3]) + 6 : Y(c[2]) - 6;
+      g.save(); g.globalAlpha = .35; g.fillStyle = o.dir === 1 ? C.up : C.dn; g.beginPath(); g.moveTo(X(j), y); g.lineTo(X(j) - 5, y + 8 * o.dir); g.lineTo(X(j) + 5, y + 8 * o.dir); g.fill(); g.restore();
+      Nav.hit(cv, { x: X(j), y: y + 4 * o.dir, data: { kind: "hist", id: x.id } }); } }
+    else if (o.extT) { const j = idx(o.extT); if (j >= 0) { g.save(); g.globalAlpha = .3; g.fillStyle = C.sec; g.beginPath(); g.arc(X(j), Y(o.ext), 3, 0, 7); g.fill(); g.restore();
+      Nav.hit(cv, { x: X(j), y: Y(o.ext), data: { kind: "hist", id: x.id } }); } }
   }
-  if (s.choch) {
-    const iR = idx(s.choch.refT), iC = idx(s.choch.t), y = Y(s.choch.level);
-    g.save(); g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.moveTo(iR >= 0 ? X(iR) : 0, y); g.lineTo(iC >= 0 ? X(iC) + step / 2 : plotW + 6, y); g.stroke(); g.restore();
-    label(k, "CHoCH", iC >= 0 ? X(iC) : plotW - 20, d === 1 ? y - 6 : y + 14, col);
-    const iD = idx(s.dispT);
-    if (iD >= 0) { const c = cs[iD]; g.save(); g.strokeStyle = C.amber; g.lineWidth = 2; g.strokeRect(X(iD) - step / 2, Y(c[2]) - 3, step, Y(c[3]) - Y(c[2]) + 6); g.restore();
-      label(k, `Disp ${s.disp.toFixed(1)}×`, X(iD), d === 1 ? Math.min(H - padB - 2, Y(c[3]) + 15) : Math.max(padT + 10, Y(c[2]) - 7), C.amber); }
+  if (LY.sweep) {
+    hline(k, w.level, C.amber, `${T} level`, 0, true, 1.2);
+    const iX = s.extT ? idx(s.extT) : -1;
+    if (iX >= 0) { g.fillStyle = C.dn; g.beginPath(); g.arc(X(iX), Y(s.ext), 4, 0, 7); g.fill(); label(k, "Sweep", X(iX), d === 1 ? Y(s.ext) + 15 : Y(s.ext) - 8, C.dn); }
   }
-  if (s.eq != null) hline(k, s.eq, C.sec, "50%", Math.max(0, X(Math.max(0, idx(s.extT))) - step / 2), true, 1);
-  if (w.target != null && (s.entry != null || s.choch)) hline(k, w.target, C.blue, "TP", 0, true);
-  if (s.order) drawOrder(k, cs, s, d, col);
-  else if (s.entry != null) { hline(k, s.entry, col, "Entry", 0, true); hline(k, s.sl, C.dn, "SL", 0, true); }   // data from before the order marks existed
-  finish(k, cs, true, p, p.price);
+  if (LY.choch) {
+    if (!s.choch && s.watch) {             // no CHoCH yet: the level that has to break
+      const iR = idx(s.watch.t), y = Y(s.watch.level);
+      g.save(); g.strokeStyle = col; g.lineWidth = 1.4; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(iR >= 0 ? X(iR) : 0, y); g.lineTo(plotW + 6, y); g.stroke(); g.restore();
+      label(k, "CHoCH level", iR >= 0 ? X(iR) + 4 : 4, d === 1 ? y - 6 : y + 14, col, "left"); k.tags.push([y, col, "CHoCH?"]);
+    }
+    if (s.choch) {
+      const iR = idx(s.choch.refT), iC = idx(s.choch.t), y = Y(s.choch.level);
+      g.save(); g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.moveTo(iR >= 0 ? X(iR) : 0, y); g.lineTo(iC >= 0 ? X(iC) + step / 2 : plotW + 6, y); g.stroke(); g.restore();
+      if (iC >= 0) label(k, "CHoCH", X(iC), d === 1 ? y - 6 : y + 14, col);
+      const iD = idx(s.dispT);
+      if (iD >= 0) { const c = all[iD]; g.save(); g.strokeStyle = C.amber; g.lineWidth = 2; g.strokeRect(X(iD) - step / 2, Y(c[2]) - 3, step, Y(c[3]) - Y(c[2]) + 6); g.restore();
+        label(k, `Disp ${s.disp.toFixed(1)}×`, X(iD), d === 1 ? Math.min(H - padB - 2, Y(c[3]) + 15) : Math.max(padT + 10, Y(c[2]) - 7), C.amber); }
+    }
+  }
+  if (LY.orders) {
+    if (s.eq != null) hline(k, s.eq, C.sec, "50%", Math.max(0, X(Math.max(0, idx(s.extT))) - step / 2), true, 1);
+    if (w.target != null && (s.entry != null || s.choch)) hline(k, w.target, C.blue, "TP", 0, true);
+    if (s.order) drawOrder(k, all, s, d, col);
+    else if (s.entry != null) { hline(k, s.entry, col, "Entry", 0, true); hline(k, s.sl, C.dn, "SL", 0, true); }   // data from before the order marks existed
+  }
+  finish(k, all, true, p, p.price);
 }
 
 // order marks: pending limit (dashed, from the activation candle), simulated fill (solid arrow on the touching candle),
-// stop exit (red cross at the stop price), target exit (blue circle at the target price); never before the order was active
+// stop exit (red cross at the stop price), target exit (blue circle at the target price), cancelled order (grey, with the reason
+// on the candle that cancelled it); never before the order was active. Every mark can be tapped for the order details.
 function drawOrder(k, cs, s, d, col) {
-  const { g, C, X, Y, step, plotW, padT, H, padB } = k, o = s.order, at = t => cs.findIndex(c => c[0] >= t), hm = t => { const z = new Date(t * 1000);
-    return String(z.getHours()).padStart(2, "0") + ":" + String(z.getMinutes()).padStart(2, "0"); };
+  const { g, C, X, Y, step, plotW, padT, H, padB, cv } = k, o = s.order, at = t => cs.findIndex(c => c[0] >= t);
   const iA = at(o.activeT), xA = iA >= 0 ? X(iA) - step / 2 : X(cs.length - 1) + step / 2;
   const iF = s.tFill ? cs.findIndex(c => c[0] === s.tFill) : -1, iE = s.tExit ? cs.findIndex(c => c[0] === s.tExit) : -1;
-  const yE = Y(o.price), xF = iF >= 0 ? X(iF) : null;
-  const xEnd = o.state === "CANCELLED" && iE >= 0 ? X(iE) + step / 2 : plotW + 6;
-  // stop line from activation
-  g.save(); g.strokeStyle = C.dn; g.lineWidth = 1.2; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(xA, Y(s.sl)); g.lineTo(plotW + 6, Y(s.sl)); g.stroke(); g.restore();
-  k.tags.push([Y(s.sl), C.dn, "SL"]);
+  const yE = Y(o.price), xF = iF >= 0 ? X(iF) : null, cancelled = o.state === "CANCELLED";
+  const xEnd = cancelled && iE >= 0 ? X(iE) + step / 2 : plotW + 6;
+  // stop line from activation (ends at the cancel candle for an order that never filled)
+  g.save(); g.strokeStyle = C.dn; g.globalAlpha = cancelled ? .5 : 1; g.lineWidth = 1.2; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(xA, Y(s.sl)); g.lineTo(cancelled ? xEnd : plotW + 6, Y(s.sl)); g.stroke(); g.restore();
+  if (!cancelled || iE < 0) k.tags.push([Y(s.sl), C.dn, "SL"]);
   // pending part: dashed, thin; grey once cancelled
-  const pendCol = o.state === "CANCELLED" ? C.sec : col;
+  const pendCol = cancelled ? C.sec : col;
   g.save(); g.strokeStyle = pendCol; g.lineWidth = 1.4; g.setLineDash([6, 4]); g.beginPath(); g.moveTo(xA, yE); g.lineTo(xF != null ? xF : xEnd, yE); g.stroke(); g.restore();
   // activation tick: hollow diamond
-  g.save(); g.strokeStyle = pendCol; g.fillStyle = css("--card") || "#fff"; g.lineWidth = 1.5; g.beginPath();
+  g.save(); g.strokeStyle = pendCol; g.fillStyle = C.card; g.lineWidth = 1.5; g.beginPath();
   g.moveTo(xA, yE - 5); g.lineTo(xA + 5, yE); g.lineTo(xA, yE + 5); g.lineTo(xA - 5, yE); g.closePath(); g.fill(); g.stroke(); g.restore();
-  const pend = o.state === "WAITING" ? "limit – active next candle" : o.state === "CANCELLED" ? `${o.side} limit cancelled` : `pending ${o.side} limit`;
-  if (xF == null || xF - xA > 70) label(k, pend, Math.min(xA + 8, plotW - 110), d === 1 ? yE + 13 : yE - 6, pendCol, "left");
-  if (o.state === "CANCELLED" && iE >= 0) label(k, "✕", X(iE), yE + 4, C.sec);
+  Nav.hit(cv, { x: xA, y: yE, data: { kind: "order" } });
+  const pend = o.state === "WAITING" ? "limit – active next candle" : cancelled ? `${o.side} limit – never filled` : `pending ${o.side} limit`;
+  if ((xF == null || xF - xA > 70) && (xF != null ? xF : xEnd) - xA > 40) label(k, pend, xA + 8, d === 1 ? yE + 13 : yE - 6, pendCol, "left");
+  if (cancelled && iE >= 0) {           // the candle that cancelled the order, and why
+    const c = cs[iE], why = { INVALIDATED: "Invalidated", MISSED: "Missed – TP first", EXPIRED: "Expired" }[s.status] || "Cancelled";
+    const yc = s.status === "INVALIDATED" ? Y(s.sl) : s.status === "MISSED" && s.sweep.target != null ? Y(s.sweep.target) : d === 1 ? Y(c[3]) + 8 : Y(c[2]) - 8;
+    g.save(); g.strokeStyle = C.sec; g.lineWidth = 2.2; g.beginPath(); g.moveTo(X(iE) - 5, yc - 5); g.lineTo(X(iE) + 5, yc + 5); g.moveTo(X(iE) + 5, yc - 5); g.lineTo(X(iE) - 5, yc + 5); g.stroke(); g.restore();
+    label(k, why, X(iE), yc < padT + 24 ? yc + 18 : yc - 9, C.sec);
+    Nav.hit(cv, { x: X(iE), y: yc, data: { kind: "order" } });
+    k.tags.push([yE, C.sec, "Cancelled"]);
+  }
   // filled part: solid, thicker
   if (xF != null) {
     const xs = iE >= 0 && s.exitPx != null ? X(iE) : plotW + 6;
@@ -324,8 +377,9 @@ function drawOrder(k, cs, s, d, col) {
     g.save(); g.fillStyle = col; g.beginPath(); g.arc(X(iF), yE, 3, 0, 7); g.fill(); g.restore();
     const ly = d === 1 ? Math.min(H - padB - 2, ya + 29) : Math.max(padT + 10, ya - 21);
     label(k, `${o.side} ${hm(s.tFill)}`, X(iF), ly, col);
+    Nav.hit(cv, { x: X(iF), y: ya + 9 * dir, r: 26, data: { kind: "order" } });
     k.tags.push([yE, col, "Entry"]);
-  } else k.tags.push([yE, pendCol, o.side + " LMT"]);
+  } else if (!cancelled) k.tags.push([yE, pendCol, o.side + " LMT"]);
   // exit marks
   if (iE >= 0 && s.exitPx != null) {
     const y = Y(s.exitPx), x = X(iE), note = s.exitNote ? "*" : "";
@@ -336,8 +390,34 @@ function drawOrder(k, cs, s, d, col) {
       g.save(); g.fillStyle = C.blue; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); g.restore(); label(k, "✓", x, y + 3.5, "#fff");
       label(k, "TP " + hm(s.tExit), x, d === 1 ? y - 10 : y + 18, C.blue);
     }
+    Nav.hit(cv, { x, y, data: { kind: "order" } });
   }
 }
+
+/* compact detail card for a tapped marker */
+function markerPop(cv, data, q) {
+  const wrap = cv.parentNode; let pop = wrap.querySelector(".mpop");
+  if (!pop) { pop = document.createElement("div"); pop.className = "mpop"; wrap.appendChild(pop); }
+  const x = data.kind === "hist" ? find(data.id) : find(openId); if (!x) return;
+  const { p, s, tf } = x, o = s.order, w = s.sweep, rr = s.rr != null ? s.rr.toFixed(2) : "–";
+  const rowsH = [["Symbol", `${esc(p.sym)} · ${TFN[tf]} → ${LTFN[tf]}`], ["Model", "ICT liquidity sweep"], ["Direction", s.dir === 1 ? "▲ Long (BUY)" : "▼ Short (SELL)"],
+    ["Setup (sweep candle)", when(w.t)], ["CHoCH", s.choch ? when(s.choch.t) : "–"], ["Order active from", o ? when(o.activeT) : "–"],
+    ["Entry (limit)", s.entry != null ? fmt(p, s.entry) + (s.zone ? " · " + s.zone.type : "") : "–"], ["Stop loss", fmt(p, s.sl)],
+    ["Target (TP)", w.target != null ? `${fmt(p, w.target)} · ${w.targetLabel}` : "–"], ["R:R", rr],
+    ["Status", (STATUS[s.status] || s.status) + (o ? " · " + o.state.toLowerCase() : "")],
+    ["Fill", s.tFill ? `${when(s.tFill)} @ ${fmt(p, s.fillPx)}` : o && o.state === "CANCELLED" ? "never filled" : "not filled"]];
+  if (s.tExit) rowsH.push([s.exitPx != null ? "Exit" : "Cancelled", `${when(s.tExit)}${s.exitPx != null ? " @ " + fmt(p, s.exitPx) : ""}`]);
+  if (o && o.why) rowsH.push(["Reason", esc(o.why)]);
+  if (s.exitNote) rowsH.push(["Note", esc(s.exitNote)]);
+  pop.innerHTML = `<button type="button" class="x" aria-label="Close">✕</button>` + (data.kind === "hist" ? `<b>Other setup of this pair</b>` : "") +
+    rowsH.map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join("") +
+    (data.kind === "hist" ? `<button type="button" class="go" data-go="${esc(x.id)}">Open this setup</button>` : "") +
+    `<div class="muted">Simulated from candle high/low; the order of events inside one candle is unknown.</div>`;
+  pop.hidden = false;
+  pop.style.top = (cv.offsetTop + 4) + "px";          // pinned to the top of the chart so it is always fully visible
+  pop.scrollIntoView({ block: "nearest" });
+}
+function hidePops() { document.querySelectorAll("#swSheet .mpop").forEach(x => x.hidden = true); }
 
 /* ---------- export ---------- */
 function csv() {
@@ -402,6 +482,10 @@ $("#swDir").addEventListener("click", e => { const b = e.target.closest("button"
   document.querySelectorAll("#swDir .chip").forEach(x => x.classList.toggle("on", x === b)); render(); });
 document.addEventListener("click", e => { const r = e.target.closest("tr[data-sw]"); if (r) openDetail(r.dataset.sw); });
 $("#swClose").onclick = closeDetail;
+Nav.attach($("#swCv1"), { redraw: drawCharts, onMarker: (d, q) => markerPop($("#swCv1"), d, q), onSelect: hidePops, candles: () => cur.htf });
+Nav.attach($("#swCv2"), { redraw: drawCharts, onMarker: (d, q) => markerPop($("#swCv2"), d, q), onSelect: hidePops, candles: () => cur.ltf });
+$("#swLayers").addEventListener("click", e => { const b = e.target.closest("button[data-ly]"); if (!b) return; LY[b.dataset.ly] = !LY[b.dataset.ly]; ls.set("sw-layers", LY); layersBar(); drawCharts(); });
+$("#swSheet").addEventListener("click", e => { if (e.target.closest(".mpop .x")) hidePops(); const g = e.target.closest(".mpop .go"); if (g) openDetail(g.dataset.go); });
 $("#swSheet").addEventListener("click", e => { if (e.target.id === "swSheet") closeDetail(); });
 $("#swCsv").onclick = csv;
 $("#swTf").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; tfSel = b.dataset.tf; ls.set("sw-tf", tfSel); render(); });
