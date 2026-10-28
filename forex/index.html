@@ -81,6 +81,10 @@
   .charts { display:grid; gap:10px; grid-template-columns:minmax(0,1fr); }   /* fixed track: a canvas's pixel size must not widen the grid on high-DPI phones */
   .charts.two { grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr)); }
   .charts.two canvas { height:300px; }
+  .sheet .hd { position:sticky; top:-14px; z-index:5; background:var(--card); margin:-14px 0 0; padding:14px 0 6px; }
+  .trade { flex:1 1 100%; display:flex; flex-wrap:wrap; gap:4px 6px; font-size:12px; color:var(--ink2); }
+  .trade span { white-space:nowrap; } .trade span.note { white-space:normal; } .trade b { font-weight:700; } .trade .pend { color:var(--blue); } .trade .fill { color:var(--green); }
+  .trade .sl { color:var(--red); } .trade .tp { color:var(--blue); } .trade .can { color:var(--sec); }
   .cnav { display:flex; gap:4px; margin:0 0 4px; overflow-x:auto; scrollbar-width:none; }
   .cnav button { flex:0 0 auto; min-width:34px; height:30px; padding:0 9px; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; font-size:13px; font-weight:700; }
   .cnav button.on { background:var(--blue); border-color:var(--blue); color:#fff; }
@@ -254,7 +258,7 @@
 </div>
 <div class="sheet" id="swSheet" hidden>
   <div class="panel" role="dialog" aria-modal="true" aria-labelledby="swTitle">
-    <div class="hd"><h3 id="swTitle">EURUSD</h3><span class="badge" id="swBadge"></span><button class="x" id="swClose" type="button">Close</button></div>
+    <div class="hd"><h3 id="swTitle">EURUSD</h3><span class="badge" id="swBadge"></span><button class="x" id="swClose" type="button">Close</button><div class="trade" id="swTrade"></div></div>
     <div class="chips layers" id="swLayers" aria-label="Chart layers"></div>
     <div class="charts two">
       <div><div class="cap" id="swCap1">4H – swing, sweep, back into range, target</div><canvas id="swCv1" aria-label="4H chart"></canvas></div>
@@ -266,12 +270,12 @@
     <div class="muted" id="swWhy"></div>
   </div>
 </div>
-<script src="chartnav.js?v=22"></script>
-<script src="sweep.js?v=22"></script>
-<script src="live.js?v=22"></script>
-<script src="app.js?v=22"></script>
-<script src="sweep-ui.js?v=22"></script>
-<script src="export.js?v=22"></script>
+<script src="chartnav.js?v=23"></script>
+<script src="sweep.js?v=23"></script>
+<script src="live.js?v=23"></script>
+<script src="app.js?v=23"></script>
+<script src="sweep-ui.js?v=23"></script>
+<script src="export.js?v=23"></script>
 <script>
 if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>

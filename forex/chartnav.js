@@ -5,7 +5,15 @@
 const Nav = (() => {
   "use strict";
   const ST = new WeakMap();
-  const MIN_W = 6;
+  const MIN_W = 6, FAR = 2.5, SETUP_MIN_W = 24;
+  /* the frame for a setup: all its candles plus room on both sides (default view, "Setup" button and Reset) */
+  function setupFrame(st, n) {
+    const w = st.i1 - st.i0 + 1, p = Math.max(3, w * 0.15);
+    let a = st.i0 - p, b = st.i1 + 1 + p;
+    if (b - a < SETUP_MIN_W) { const x = SETUP_MIN_W - (b - a); b += x * 0.6; a -= x * 0.4; }
+    if (b > n + 3) { b = n + 3; a = Math.min(a, b - Math.max(SETUP_MIN_W, w + p)); }
+    return { a, b };
+  }
   const raf = s => { if (s.pending) return; s.pending = true; requestAnimationFrame(() => { s.pending = false; s.o.redraw && s.o.redraw(); }); };
 
   function attach(cv, o) {
@@ -22,13 +30,17 @@ const Nav = (() => {
   /* called by a draw function: (re)start the view for a new setup, keep it for the same one */
   function view(cv, key, n, def, setup) {
     const s = ST.get(cv); if (!s) return null;
+    if (!def) def = setup ? setupFrame(setup, n) : { a: Math.max(0, n - 40), b: n + 3 };
     if (s.key !== key) { Object.assign(s, { key, n, a: def.a, b: def.b, auto: true, yLo: null, yHi: null, sel: null, hover: null }); }
     else if (n !== s.n) { if (s.b >= s.n) { s.a += n - s.n; s.b += n - s.n; } s.n = n; }     // a new candle arrived: follow it if the latest was in view
     s.def = def; s.setup = setup || null;
     return s;
   }
 
-  /* scale for this draw: X(i), Y(v), visible index range, and the price range (auto or manual) */
+  /* scale for this draw: X(i), Y(v), visible index range, and the price range (auto or manual).
+   * levels = [..] or { core: [..], far: [..] }: with auto-scale, core levels (entry, zone, stop, sweep extreme) always fit while the
+   * setup is on screen; a far level (a distant target) only if it does not stretch the price range more than FAR times -
+   * otherwise it stays off scale (the chart pins its tag to the edge) so the entry candles stay readable. */
   function frame(cv, cs, box, levels) {
     const s = ST.get(cv), { padT, plotW, plotH } = box, n = cs.length;
     const a = s.a, b = s.b, step = plotW / (b - a);
@@ -36,13 +48,18 @@ const Nav = (() => {
     let hi = -Infinity, lo = Infinity;
     for (let i = i0; i <= i1; i++) { if (cs[i][2] > hi) hi = cs[i][2]; if (cs[i][3] < lo) lo = cs[i][3]; }
     if (!isFinite(hi)) { hi = 1; lo = 0; }
+    const L = Array.isArray(levels) ? { core: levels, far: [] } : (levels || { core: [], far: [] }), off = [];
     if (s.auto) {             // the selected setup's levels count while any of its candles is on screen
-      if (s.setup && s.setup.i1 >= a && s.setup.i0 <= b) for (const v of levels || []) if (v != null && isFinite(v)) { if (v > hi) hi = v; if (v < lo) lo = v; }
+      if (s.setup && s.setup.i1 >= a && s.setup.i0 <= b) {
+        for (const v of L.core || []) if (v != null && isFinite(v)) { if (v > hi) hi = v; if (v < lo) lo = v; }
+        for (const v of L.far || []) if (v != null && isFinite(v)) { const nh = Math.max(hi, v), nl = Math.min(lo, v);
+          if (nh - nl <= FAR * (hi - lo)) { hi = nh; lo = nl; } else off.push(v); }
+      }
       const pad = (hi - lo) * 0.06 || hi * 0.001; hi += pad; lo -= pad;
     } else { hi = s.yHi; lo = s.yLo; }
     const X = i => 6 + (i - a + 0.5) * step, Y = v => padT + (hi - v) / (hi - lo) * plotH;
-    s.k = { padT, plotW, plotH, step, a, hi, lo, n, hits: [] };
-    return { X, Y, step, hi, lo, i0, i1, s };
+    s.k = { padT, plotW, plotH, step, a, hi, lo, n, hits: [], off };
+    return { X, Y, step, hi, lo, i0, i1, s, off };
   }
 
   function hit(cv, h) { const s = ST.get(cv); if (s && s.k) s.k.hits.push(h); }
@@ -69,9 +86,10 @@ const Nav = (() => {
 
   /* time-axis labels for the visible candles only */
   function timeAxis(g, cs, X, i0, i1, H, fmtT, color) {
-    const n = i1 - i0 + 1, every = Math.max(1, Math.ceil(n / 4));
     g.save(); g.font = "10px -apple-system,Segoe UI,Roboto,sans-serif"; g.fillStyle = color; g.textAlign = "center";
-    for (let i = i0; i <= i1; i++) if ((i - i0) % every === Math.min(1, every - 1)) g.fillText(fmtT(cs[i][0]), X(i), H - 6);
+    const lw = Math.max(40, ...[i0, i1].filter(i => cs[i]).map(i => g.measureText(fmtT(cs[i][0])).width)) + 14;   // label spacing in pixels, never overlapping
+    const step = i1 > i0 ? (X(i1) - X(i0)) / (i1 - i0) : 100, every = Math.max(1, Math.ceil(lw / step));
+    for (let i = i0; i <= i1; i++) if (i % every === 0) { const x = X(i); if (x > lw / 2 - 8 && x < g.canvas.clientWidth - 64 - lw / 2) g.fillText(fmtT(cs[i][0]), x, H - 6); }
     g.restore();
   }
 
@@ -96,7 +114,7 @@ const Nav = (() => {
     if (what === "in") zoomAt(s, 0.7, anchor(s));
     else if (what === "out") zoomAt(s, 1 / 0.7, anchor(s));
     else if (what === "latest") { s.b = s.n + 3; s.a = s.b - w; clamp(s); }
-    else if (what === "setup" && s.setup) { const p = Math.max(3, (s.setup.i1 - s.setup.i0) * .15); s.a = s.setup.i0 - p; s.b = s.setup.i1 + p + 1; s.auto = true; clamp(s); }
+    else if (what === "setup" && s.setup) { const f = setupFrame(s.setup, s.n); s.a = f.a; s.b = f.b; s.auto = true; s.sel = null; clamp(s); }
     else if (what === "fit" && s.k) {     // price range = the visible candles only
       const cs = s.o.candles ? s.o.candles() : null; if (!cs || !cs.length) return;
       let hi = -Infinity, lo = Infinity;
@@ -199,5 +217,9 @@ const Nav = (() => {
   }
 
   const get = cv => ST.get(cv);
-  return { attach, view, frame, hit, cross, timeAxis, get, act: (cv, w) => act(ST.get(cv), w) };
+  /* price tags of levels outside the plot are pinned to its top / bottom edge with an arrow instead of disappearing */
+  function pinTags(tags, top, bottom) {
+    return tags.map(([y, col, txt]) => y < top ? [top + 8, col, "↑ " + txt] : y > bottom ? [bottom - 8, col, "↓ " + txt] : [y, col, txt]);
+  }
+  return { attach, view, frame, hit, cross, timeAxis, get, setupFrame, pinTags, act: (cv, w) => act(ST.get(cv), w) };
 })();

@@ -1,0 +1,31 @@
+name: Chart UI test
+
+# Runs the chart UI regression test (forex/tests/ui_test.js: entry / exit candles, Fit Setup, zoom / pan, phone layout,
+# CRT tab) in headless Chromium with Android device emulation whenever the app's front-end changes.
+on:
+  push:
+    paths:
+      - "forex/*.js"
+      - "forex/index.html"
+      - "forex/tests/ui_test.js"
+      - "forex/tests/ui_fixture.json"
+      - ".github/workflows/ui_test.yml"
+  workflow_dispatch: {}
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Playwright + Chromium
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Engine tests
+        run: node forex/tests/run_tests.js
+      - name: Chart UI test
+        run: node forex/tests/ui_test.js
