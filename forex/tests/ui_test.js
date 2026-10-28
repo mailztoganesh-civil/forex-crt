@@ -16,7 +16,7 @@ const R = []; const check = (name, ok, info) => R.push({ name, ok: !!ok, info })
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split("?")[0]); if (p.endsWith("/")) p += "index.html";
   const f = p === "/data/crt.json" ? FIX : path.join(ROOT, p);
-  if (!f.startsWith(ROOT) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
+  if ((f !== FIX && !f.startsWith(ROOT)) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
   const ct = { ".html": "text/html", ".js": "application/javascript", ".json": "application/json", ".png": "image/png" }[path.extname(f)] || "application/octet-stream";
   res.writeHead(200, { "Content-Type": ct, "Cache-Control": "no-store" }); fs.createReadStream(f).pipe(res);
 });
