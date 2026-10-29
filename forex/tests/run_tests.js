@@ -6,6 +6,7 @@ const fs = require("fs"), path = require("path");
 global.window = {};
 eval(fs.readFileSync(path.join(__dirname, "..", "sweep.js"), "utf8"));
 eval(fs.readFileSync(path.join(__dirname, "..", "live.js"), "utf8"));
+eval(fs.readFileSync(path.join(__dirname, "..", "sb.js"), "utf8"));
 const F = window.FXLive, T = JSON.parse(fs.readFileSync(path.join(__dirname, "crt_cases.json"), "utf8"));
 let pass = 0, fail = 0;
 const check = (name, ok, info) => { if (ok) pass++; else { fail++; console.log("FAIL:", name, info === undefined ? "" : JSON.stringify(info)); } };
@@ -190,6 +191,47 @@ check("[regression] phone engine loads 1 year of hourly data like the GitHub sca
     const mine = [...g.values()].sort((a, b) => a[0] - b[0]);
     check(`[DST] ${tf} candles = independent New York bar-by-bar grouping (${mine.length} candles)`, eq(B[tf], mine), { n: B[tf].length, m: mine.length });
   }
+}
+/* ---------- ICT Silver Bullet (forex/sb.js) vs the Python backtest (scripts/silver_bullet_backtest.py) on real days ---------- */
+{
+  const SB = window.FXSilverBullet, X = JSON.parse(fs.readFileSync(path.join(__dirname, "sb_fixture.json"), "utf8"));
+  const close = (a, b) => a === b || (a != null && b != null && Math.abs(a - b) < 1e-6);
+  const MAP = { "DOL < 1R": "NO_TRADE", "expired 11:00": "EXPIRED", "missed": "MISSED", "fill+target one bar": "NO_TRADE" }, HOW = { stop: "STOPPED", target: "TARGET", time: "TIME_EXIT" };
+  let setups = 0, bad = [], trades = 0, badT = [], repaint = [], sessionBad = [];
+  for (const day of X.days) {
+    const c = day.c, T = c.map(x => x[0]), O = c.map(x => x[1]), H = c.map(x => x[2]), L = c.map(x => x[3]), C = c.map(x => x[4]), M = T.map(t => SB.ny(t).min);
+    const ds = SB.daySetup(O, H, L, C, M), e = day.expect.setup, s = ds.setup;
+    const same = e === null ? (s === null || s === undefined) : e === "both" ? s === "both" :
+      s && s !== "both" && s.d === e.d && s.mss === e.mss && close(s.stop, e.stop) && close(s.fvg, e.fvg) && close(s.brk, e.brk) && close(s.dol, e.dol);
+    if (!same) bad.push([day.sym, day.day, e, s]);
+    if (!e || e === "both" || !s || s === "both") continue;
+    setups++;
+    for (const [key, r] of Object.entries(day.expect.trades)) {
+      const [kind, tm] = key.split("|"), j = SB.trade(s, T, O, H, L, C, M, kind, tm); trades++;
+      const ok = r === null ? j.state === "NO_TRADE" : r.filled ? j.state === HOW[r.how] && close(j.R, r.R) : j.state === MAP[r.why];
+      if (!ok) badT.push([day.sym, day.day, key, r, j.state, j.R]);
+    }
+    // the screener on the full day = the breaker / DOL trade; replay candle by candle: known facts never change
+    const full = SB.session(c, T[T.length - 1] + 300, "breaker", "dol");
+    const r0 = day.expect.trades["breaker|dol"], want = r0 === null ? "NO_TRADE" : r0.filled ? HOW[r0.how] : MAP[r0.why];
+    if (full.status !== want) sessionBad.push([day.sym, day.day, full.status, want]);
+    let seen = {};
+    for (let k = 60; k < c.length; k++) {
+      const v = SB.session(c, c[k][0] + 300, "breaker", "dol");
+      const facts = { side: v.side, mssT: v.mssT, extPx: v.mssT ? v.extPx : undefined, brk: v.brk, fvg: v.fvg, entry: v.order && v.order.entry, tp: v.order && v.order.tp,
+        fillT: v.order && v.order.fillT, exitT: v.order && v.order.exitT, final: ["TARGET", "STOPPED", "TIME_EXIT", "EXPIRED", "MISSED", "NO_TRADE"].includes(v.status) ? v.status : undefined };
+      for (const [f, val] of Object.entries(facts)) { if (val === undefined || val === null) continue; if (f in seen && seen[f] !== val) repaint.push([day.sym, day.day, f, seen[f], val]); seen[f] = val; }
+    }
+  }
+  check(`[silver bullet] setup identical to the Python backtest on ${X.days.length} real days (${setups} with a setup)`, bad.length === 0, bad.slice(0, 3));
+  check(`[silver bullet] trade outcome identical to Python for every entry / target rule (${trades} trades)`, badT.length === 0, badT.slice(0, 3));
+  check("[silver bullet] screener status on the finished day = the backtest's breaker / liquidity trade", sessionBad.length === 0, sessionBad.slice(0, 3));
+  check("[silver bullet] no repaint: replayed candle by candle, nothing already known changes later", repaint.length === 0, repaint.slice(0, 3));
+  // forming candle ignored; DST: 10:00 NY is 14:00 UTC in summer and 15:00 UTC in winter
+  check("[silver bullet] New York time with DST (Jul 10:00 = 14:00 UTC, Jan 10:00 = 15:00 UTC)", SB.ny(Date.UTC(2026, 6, 15, 14, 0) / 1000).min === 600 && SB.ny(Date.UTC(2026, 0, 15, 15, 0) / 1000).min === 600);
+  { const d0 = X.days.find(d => d.expect.setup && d.expect.setup !== "both"), c = d0.c, k = d0.expect.setup.mss;
+    const a = SB.session(c.slice(0, k + 1), c[k][0] + 299), b = SB.session(c.slice(0, k + 1), c[k][0] + 300);
+    check("[silver bullet] a candle still forming is ignored (MSS appears only once its candle has closed)", a.mssT === undefined && b.mssT === c[k][0], [a.status, b.status]); }
 }
 console.log(`JS: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

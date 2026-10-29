@@ -14,6 +14,7 @@ on:
       - "forex/sweep.js"
       - "scripts/sweep_replay_check.py"
       - "forex/live.js"
+      - "forex/sb.js"
       - "forex/tests/**"
   schedule:
     - cron: "4,34 * * * 1-5"

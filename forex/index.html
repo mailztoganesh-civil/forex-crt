@@ -85,6 +85,10 @@
   .trade { flex:1 1 100%; display:flex; flex-wrap:wrap; gap:4px 6px; font-size:12px; color:var(--ink2); }
   .trade span { white-space:nowrap; } .trade span.note { white-space:normal; } .trade b { font-weight:700; } .trade .pend { color:var(--blue); } .trade .fill { color:var(--green); }
   .trade .sl { color:var(--red); } .trade .tp { color:var(--blue); } .trade .can { color:var(--sec); }
+  .sbst { display:inline-block; padding:2px 7px; border-radius:999px; font-size:12px; font-weight:700; background:var(--tint); color:var(--ink2); }
+  .sb-IN_TRADE, .sb-ORDER { background:var(--green); color:#fff; } .sb-RAID { background:var(--amber); color:#fff; } .sb-WATCH { background:var(--blue); color:#fff; }
+  .sb-TARGET { background:var(--blue); color:#fff; } .sb-STOPPED { background:var(--red); color:#fff; }
+  .sbwarn { border-left:4px solid var(--amber); font-size:13px; line-height:1.5; } .sbwarn a { color:var(--blue); }
   .cnav { display:flex; gap:4px; margin:0 0 4px; overflow-x:auto; scrollbar-width:none; }
   .cnav button { flex:0 0 auto; min-width:34px; height:30px; padding:0 9px; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; font-size:13px; font-weight:700; }
   .cnav button.on { background:var(--blue); border-color:var(--blue); color:#fff; }
@@ -141,7 +145,7 @@
   <button id="refresh" type="button" aria-label="Refresh">↻</button>
 </header>
 <main>
-  <div class="seg two" id="appTab" role="tablist" aria-label="Screener"><button data-tab="crt" class="on">CRT</button><button data-tab="sweep">ICT Sweeps</button></div>
+  <div class="seg" id="appTab" style="grid-template-columns:repeat(3,1fr)" role="tablist" aria-label="Screener"><button data-tab="crt" class="on">CRT</button><button data-tab="sweep">ICT Sweeps</button><button data-tab="sb">Silver Bullet</button></div>
   <div id="crtView" style="display:grid;gap:12px;min-width:0">
   <div class="seg" id="tfSeg" role="tablist" aria-label="Timeframe">
     <button data-tf="1H">1H</button><button data-tf="4H" class="on">4H</button><button data-tf="D">Daily</button><button data-tf="W">Weekly</button><button data-tf="M">Monthly</button>
@@ -189,6 +193,25 @@
     <b>Anticipated</b> – no sweep yet, price is within <span id="nearTxt">25%</span> of the previous candle's high/low.<br>
     Candles follow New York forex time: days start 17:00 NY, 4H blocks at 1-5-9. Live prices refresh every minute through your Cloudflare Worker; the GitHub scan is the backup. Gold uses COMEX gold futures; NAS100, US30 and US500 use the CME index futures (NQ, YM, ES).
   </section>
+  </div>
+  <div id="sbView" hidden style="display:grid;gap:12px;min-width:0">
+    <section class="card sbwarn"><b>Backtest result: no edge found.</b> These exact rules on 5-minute data, 2020–2026, after futures costs: Nasdaq −0.14 R per trade (every entry), S&amp;P ≈ 0,
+      EURUSD negative, GBPUSD / gold within noise. Use this screen to study or demo-trade the model, not as a signal to trade real money.
+      <a href="https://github.com/mailztoganesh-civil/forex-crt/blob/main/forex/backtest/SILVER_BULLET.md" target="_blank" rel="noopener">Full report</a></section>
+    <div class="muted" id="sbClock" style="margin:0 2px"></div>
+    <div class="seg" id="sbEntry" style="grid-template-columns:repeat(3,1fr)" aria-label="Entry"><button data-v="breaker">Breaker entry</button><button data-v="fvg">FVG entry</button><button data-v="market">Market at MSS</button></div>
+    <div class="seg two" id="sbTarget" aria-label="Target"><button data-v="dol">Target: opposite liquidity</button><button data-v="2R">Target: 2R</button></div>
+    <section class="card" id="sbTable"></section>
+    <section class="card legend">
+      <b>Rules</b> (identical to the backtest, <code>scripts/silver_bullet_backtest.py</code>; checked against it on 160 real days) – New York time, 5-minute candles, only closed candles.<br>
+      <b>1. Liquidity</b> – SSL / BSL = the low / high of 00:00–09:55 NY.<br>
+      <b>2. Raid</b> – a candle between 10:00 and 10:55 trades below SSL (long setup) or above BSL (short setup).<br>
+      <b>3. MSS</b> – after the raid extreme, the first candle up to 10:55 that <i>closes</i> beyond the last 5m swing made since 09:30. That swing level is the breaker.<br>
+      <b>4. FVG</b> – the last gap between the extreme and the MSS candle.<br>
+      <b>5. Order</b> – entry fixed in advance (breaker limit, FVG limit or market at the next open); stop = the raid extreme; target = the opposite liquidity (only if ≥ 1R away) or 2R.
+      Limit orders become active at the MSS candle's close and are cancelled at 11:00 or when stop / target trade first. Exit at stop, target or the 15:55 close.<br>
+      Fills are simulated from candle high/low without costs; stop and target in one candle counts as a stop; fill and target in one candle is not counted.
+    </section>
   </div>
   <div id="swView" hidden style="display:grid;gap:12px;min-width:0">
     <div class="seg" id="swTf" style="grid-template-columns:repeat(3,1fr)" role="tablist" aria-label="Sweep timeframe"><button data-tf="D">1D sweep</button><button data-tf="4H" class="on">4H sweep</button><button data-tf="2H">2H sweep</button></div>
@@ -256,6 +279,13 @@
     <div class="muted" id="dNote"></div>
   </div>
 </div>
+<div class="sheet" id="sbSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sbTitle">
+    <div class="hd"><h3 id="sbTitle">NAS100</h3><span class="badge" id="sbBadge"></span><button class="x" id="sbClose" type="button">Close</button><div class="trade" id="sbTrade"></div></div>
+    <div class="charts"><div><div class="cap">5m – New York session: liquidity, 10–11 window, raid, MSS, FVG, order</div><canvas id="sbCv" aria-label="5 minute Silver Bullet chart"></canvas></div></div>
+    <div class="lv" id="sbLv"></div>
+  </div>
+</div>
 <div class="sheet" id="swSheet" hidden>
   <div class="panel" role="dialog" aria-modal="true" aria-labelledby="swTitle">
     <div class="hd"><h3 id="swTitle">EURUSD</h3><span class="badge" id="swBadge"></span><button class="x" id="swClose" type="button">Close</button><div class="trade" id="swTrade"></div></div>
@@ -270,12 +300,14 @@
     <div class="muted" id="swWhy"></div>
   </div>
 </div>
-<script src="chartnav.js?v=23"></script>
-<script src="sweep.js?v=23"></script>
-<script src="live.js?v=23"></script>
-<script src="app.js?v=23"></script>
-<script src="sweep-ui.js?v=23"></script>
-<script src="export.js?v=23"></script>
+<script src="chartnav.js?v=24"></script>
+<script src="sweep.js?v=24"></script>
+<script src="sb.js?v=24"></script>
+<script src="live.js?v=24"></script>
+<script src="app.js?v=24"></script>
+<script src="sweep-ui.js?v=24"></script>
+<script src="export.js?v=24"></script>
+<script src="sb-ui.js?v=24"></script>
 <script>
 if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>

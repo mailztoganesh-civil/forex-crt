@@ -9,6 +9,8 @@ on:
       - "forex/index.html"
       - "forex/tests/ui_test.js"
       - "forex/tests/ui_fixture.json"
+      - "forex/tests/sb_ui_test.js"
+      - "forex/tests/sb_fixture.json"
       - ".github/workflows/ui_test.yml"
   workflow_dispatch: {}
 
@@ -29,3 +31,5 @@ jobs:
         run: node forex/tests/run_tests.js
       - name: Chart UI test
         run: node forex/tests/ui_test.js
+      - name: Silver Bullet tab UI test
+        run: node forex/tests/sb_ui_test.js
