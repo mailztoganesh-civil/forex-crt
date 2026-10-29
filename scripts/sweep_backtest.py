@@ -30,7 +30,7 @@ import forex_crt as F       # noqa: E402
 import sweep4h as S         # noqa: E402
 import crt_backtest as B    # noqa: E402  (data loading, costs, periods, stats)
 
-OUT_DIR = B.OUT_DIR
+OUT_DIR = os.environ.get("SWEEP_OUT", B.OUT_DIR)   # SWEEP_OUT: write elsewhere (delay-sensitivity runs)
 HOLD_D = {"D": 20 * 86400, "4H": 5 * 86400, "2H": 3 * 86400}   # max holding time after the fill
 AGG = {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
 
@@ -81,8 +81,8 @@ def simulate(s, m5, pair):
     fill = None
     for k in range(a, min(e, len(T))):
         lo, hi = L[k], H[k]
-        touch = (lo - hs <= entry) if d == 1 else (hi + hs >= entry)        # buy limit at the ask / sell limit at the bid
-        stop = (lo + hs <= sl) if d == 1 else (hi - hs >= sl)
+        touch = (lo + hs <= entry) if d == 1 else (hi - hs >= entry)        # buy limit fills when the ASK (mid + half spread) reaches it, sell limit at the BID
+        stop = (lo - hs <= sl) if d == 1 else (hi + hs >= sl)               # a long is stopped at the bid, a short at the ask
         tgt = (hi - hs >= tp) if d == 1 else (lo + hs <= tp)
         if touch and T[k] >= s["tconf"]:                       # no fill before the 4H sweep candle closed back inside
             if tgt and not stop:                                # entry and target in the same 5m bar: order unknown -> no trade
@@ -96,7 +96,7 @@ def simulate(s, m5, pair):
         return {"placed": True, "filled": False, "why": "expired"}
     end = int(np.searchsorted(T, T[fill] + HOLD_D[TF], "left"))
     for k in range(fill, min(end, len(T))):
-        stop = (L[k] + hs <= sl) if d == 1 else (H[k] - hs >= sl)
+        stop = (L[k] - hs <= sl) if d == 1 else (H[k] + hs >= sl)
         tgt = (H[k] - hs >= tp) if d == 1 else (L[k] + hs <= tp)
         if stop:
             return {"placed": True, "filled": True, "R": d * ((sl - d * sp) - entry) / risk, "how": "stop", "both": bool(tgt), "t": int(T[fill])}

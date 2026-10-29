@@ -198,3 +198,34 @@ class Candles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FillSides(unittest.TestCase):
+    """Backtest execution: quotes are mid prices; a buy limit fills only when the ASK (mid + half spread) reaches it and a
+    long is stopped when the BID (mid - half spread) reaches the stop (shorts mirrored). Guards the 2026-10-29 fix."""
+    def bars(self, rows):
+        import numpy as np
+        return tuple(np.array(c) for c in zip(*rows))
+
+    def test_bos_limit_and_stop_sides(self):
+        import bos_backtest as BB
+        hs = 0.8 / 2 * 1e-4                          # EURUSD half spread
+        e, sl, tp = 1.1000, 1.0950, 1.1100
+        # mid touches the entry exactly: the ask is still above -> no fill, order expires
+        r = BB.run_trade(1, e, sl, tp, 0, 600, self.bars([[0, 1.1010, 1.1012, e, 1.1005], [300, 1.1005, 1.1008, e, 1.1004]]), "EURUSD", "1H")
+        self.assertFalse(r["filled"])
+        # mid goes half a spread below: fills; then mid stays above the stop but the bid reaches it -> stopped
+        r = BB.run_trade(1, e, sl, tp, 0, 900, self.bars([[0, 1.1010, 1.1012, e - hs, 1.1005], [300, 1.1000, 1.1001, sl + hs * 0.5, 1.0960]]), "EURUSD", "1H")
+        self.assertTrue(r["filled"]); self.assertEqual(r["how"], "stop")
+        # short: sell limit needs the bid (mid - half spread) at the entry
+        r = BB.run_trade(-1, e, 1.1050, 1.0900, 0, 600, self.bars([[0, 1.0990, e, 1.0988, 1.0995]]), "EURUSD", "1H")
+        self.assertFalse(r["filled"])
+
+    def test_sweep_limit_side(self):
+        import sweep_backtest as SB
+        hs = 0.8 / 2 * 1e-4
+        s = {"x": {"zone": {"type": "FVG"}, "entry": 1.1000, "sl": 1.0950}, "sw": {"dir": 1, "target": 1.1100}, "tzone": 0, "texp": 600, "tconf": 0}
+        r = SB.simulate(s, self.bars([[0, 1.1010, 1.1012, 1.1000, 1.1005], [300, 1.1005, 1.1008, 1.1000, 1.1004]]), "EURUSD")
+        self.assertFalse(r["filled"])
+        r = SB.simulate(s, self.bars([[0, 1.1010, 1.1012, 1.1000 - hs, 1.1005], [300, 1.1000, 1.1001, 1.0950 + hs * 0.5, 1.0960]]), "EURUSD")
+        self.assertTrue(r["filled"]); self.assertEqual(r["how"], "stop")
