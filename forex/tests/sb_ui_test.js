@@ -25,11 +25,17 @@ cut("C_PRE", M.findIndex(m => m >= 540));                 // 09:00
 cut("C_MSS", mss + 1);                                     // the MSS candle just closed -> order pending
 const raidK = cutDay.c.findIndex((c, i) => M[i] >= 600 && (cutDay.expect.setup.d === 1 ? c[3] < Math.min(...cutDay.c.filter((_, j) => M[j] < 600).map(x => x[3])) : c[2] > Math.max(...cutDay.c.filter((_, j) => M[j] < 600).map(x => x[2]))));
 if (raidK > 0 && raidK < mss) cut("C_RAID", raidK + 1);
+// history: 8 consecutive fixture days of one symbol - 7 in data/sb5m.json, the last one as "today" in the normal data
+const nsx = X.days.filter(d => d.sym === "NSXUSD").sort((a, b) => a.c[0][0] - b.c[0][0]).slice(0, 8);
+const histDays = nsx.slice(0, 7), todayDay = nsx[7];
+const sb5m = { stamp: histDays[6].day, days: 10, symbols: { H_NAS: [].concat(...histDays.map(d => d.c)) } };
+pairs.push({ sym: "H_NAS", pip: 0.01, src: "test", price: todayDay.c[todayDay.c.length - 1][4], tf: {}, ltf: { "5m": todayDay.c } });
 const fixture = Object.assign({}, base, { pairs: base.pairs.filter(p => ["EURUSD", "XAUUSD"].includes(p.sym)).concat(pairs) });
 
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split("?")[0]); if (p.endsWith("/")) p += "index.html";
   if (p === "/data/crt.json") { res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify(fixture)); }
+  if (p === "/data/sb5m.json") { res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify(sb5m)); }
   const f = path.join(ROOT, p); if (!f.startsWith(ROOT) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { "Content-Type": { ".html": "text/html", ".js": "application/javascript", ".json": "application/json", ".png": "image/png" }[path.extname(f)] || "application/octet-stream" });
   fs.createReadStream(f).pipe(res);
@@ -63,6 +69,46 @@ const server = http.createServer((req, res) => {
     if (sess.order && sess.order.exitT) check(`${sym}: exit mark on the exit candle`, h("exit") && Math.abs(h("exit").x - Xof(idx(sess.order.exitT))) < 0.6);
     const strip = await p.$eval("#sbTrade", e => e.innerText);
     check(`${sym}: trade strip ${sess.order && sess.order.fillT ? "says FILLED" : "does not say FILLED"}`, sess.order && sess.order.fillT ? /FILLED/.test(strip) : !/FILLED/.test(strip), strip);
+  }
+  // ---------- previous days: history list, tap to frame a day, marks on that day's candles, pan left ----------
+  {
+    await p.evaluate(() => { document.querySelector("#sbClose").click(); document.querySelector('tr[data-sb="H_NAS"]').click(); }); await p.waitForTimeout(600);
+    const listed = await p.$$eval("#sbHist tr[data-sbday]", rs => rs.map(r => [r.dataset.sbday, r.querySelector(".sbst").textContent, r.innerText]));
+    check("history: all 8 sessions listed (7 from sb5m.json + today)", listed.length === 8, listed.map(x => x[0]));
+    const all = [].concat(...nsx.map(d => d.c));
+    for (const d of histDays) {
+      const r = d.expect.setup && d.expect.setup !== "both" ? d.expect.trades["breaker|dol"] : undefined;
+      const want = !d.expect.setup ? null : d.expect.setup === "both" ? "No setup" : label[r === null ? "NO_TRADE" : r.filled ? HOW[r.how] : WHY[r.why]];
+      const row = listed.find(x => x[0] === d.day);
+      if (want) check(`history ${d.day}: status "${want}" = Python backtest`, row && row[1] === want, row);
+      if (!d.expect.setup || d.expect.setup === "both") continue;
+      await p.evaluate(day => document.querySelector(`#sbHist tr[data-sbday="${day}"]`).click(), d.day); await p.waitForTimeout(250);
+      const st = await p.evaluate(() => { const s = Nav.get(document.querySelector("#sbCv")); return { a: s.a, b: s.b, step: s.k.step, hits: s.k.hits.map(h => ({ x: h.x, ...h.data })) }; });
+      const Xof = i => 6 + (i - st.a + 0.5) * st.step, gi = t => all.findIndex(c => c[0] === t), sess = SB.session(all, 2e9, "breaker", "dol", d.day);
+      const dayHits = st.hits.filter(h => h.date === d.day), h = w => dayHits.find(x => x.what === w);
+      check(`history ${d.day}: tapping the row frames that day (MSS on screen)`, gi(sess.mssT) >= st.a && gi(sess.mssT) <= st.b, { a: st.a, b: st.b, mss: gi(sess.mssT) });
+      check(`history ${d.day}: MSS mark on that day's MSS candle`, h("mss") && Math.abs(h("mss").x - Xof(gi(sess.mssT))) < 0.6);
+      if (sess.order && sess.order.fillT) check(`history ${d.day}: fill arrow on that day's fill candle`, h("fill") && Math.abs(h("fill").x - Xof(gi(sess.order.fillT))) < 0.6);
+      if (sess.order && sess.order.exitT) check(`history ${d.day}: exit mark on that day's exit candle`, h("exit") && Math.abs(h("exit").x - Xof(gi(sess.order.exitT))) < 0.6);
+      const strip = await p.$eval("#sbTrade", e => e.innerText);
+      check(`history ${d.day}: header strip shows that session`, strip.includes(d.day));
+    }
+    // back to today, then drag right (scroll left in time) until yesterday's marks are on screen
+    await p.evaluate(day => document.querySelector(`#sbHist tr[data-sbday="${day}"]`).click(), todayDay.day); await p.waitForTimeout(250);
+    const cdp = await ctx.newCDPSession(p); const cv = await p.$("#sbCv"); await cv.scrollIntoViewIfNeeded(); const bb = await cv.boundingBox();
+    const all2 = [].concat(...nsx.map(d => d.c)), lastSetupDay = histDays.filter(d => d.expect.setup && d.expect.setup !== "both").pop();
+    const target = all2.findIndex(c => c[0] === SB.session(all2, 2e9, "breaker", "dol", lastSetupDay.day).mssT);
+    const a0 = await p.evaluate(() => Nav.get(document.querySelector("#sbCv")).a);
+    let st2 = null;
+    for (let k = 0; k < 40; k++) {          // one-finger drags to the right = scrolling back in time
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: bb.x + 40, y: bb.y + 150, id: 0 }] });
+      for (let s = 1; s <= 8; s++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: bb.x + 40 + s * 30, y: bb.y + 150, id: 0 }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }); await p.waitForTimeout(80);
+      st2 = await p.evaluate(() => { const s = Nav.get(document.querySelector("#sbCv")); return { a: s.a, b: s.b, dates: [...new Set(s.k.hits.map(h => h.data.date))] }; });
+      if (st2.a <= target - 5) break;
+    }
+    check(`pan left from today reaches ${lastSetupDay.day} with its marks (no symbol / timeframe change)`, st2.a < a0 && st2.dates.includes(lastSetupDay.day) && await p.$eval("#sbTitle", e => e.textContent.startsWith("H_NAS")), { a0, st2, target });
+    await p.screenshot({ path: process.env.SB_SHOTS ? path.join(process.env.SB_SHOTS, "sb_hist_pan.png") : "/dev/null" }).catch(() => {});
   }
   if (process.env.SB_SHOTS) {             // optional screenshots for a visual check
     await p.evaluate(() => document.querySelector("#sbClose").click()); await p.screenshot({ path: path.join(process.env.SB_SHOTS, "sb_table.png"), fullPage: true });

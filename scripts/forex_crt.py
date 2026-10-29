@@ -29,6 +29,8 @@ NEAR = 0.25          # "anticipated" when within 25% of the previous candle's ra
 KEEP = {"1H": 100, "4H": 100, "D": 60, "W": 60, "M": 24}   # candles per timeframe sent to the app
 LTF_KEEP = {"15m": 320, "5m": 320}                    # lower-timeframe candles for the HTF+LTF view
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "forex", "data", "crt.json")
+SB_OUT = os.path.join(os.path.dirname(OUT), "sb5m.json")   # Silver Bullet tab: 5m history of the last SB_DAYS NY sessions
+SB_DAYS = 10
 NY = "America/New_York"
 TFS = {"1H": None, "4H": None, "D": None, "W": None}
 
@@ -443,6 +445,45 @@ def fetch_yahoo(symbol, interval="1h", period="1y"):
     return d
 
 
+def sb_days(df, dg, days=SB_DAYS):
+    """5-minute candles of the last `days` New York sessions, 00:00-16:00 NY (what the Silver Bullet chart needs)."""
+    ny = df.index.tz_convert("America/New_York")
+    mins = ny.hour * 60 + ny.minute
+    keep = mins < 965
+    d, nyk = df[keep], ny[keep]
+    dates = sorted(set(nyk.date))[-days:]
+    sel = pd.Series(nyk.date, index=d.index).isin(dates).values
+    d = d[sel]
+    return [[int(t.timestamp()), round(float(r.Open), dg), round(float(r.High), dg), round(float(r.Low), dg), round(float(r.Close), dg)] for t, r in d.iterrows()]
+
+
+def sb_stamp(now):
+    """the last New York session that has finished (16:10 NY); the history file is rewritten once per new stamp"""
+    ny = now.tz_convert("America/New_York")
+    d = ny.date() if ny.hour * 60 + ny.minute >= 16 * 60 + 10 else (ny - pd.Timedelta(days=1)).date()
+    return d.isoformat()
+
+
+def sb_history(fetch=fetch_yahoo, now=None):
+    stamp = sb_stamp(now or pd.Timestamp.now(tz="UTC"))
+    if os.path.exists(SB_OUT):
+        try:
+            if json.load(open(SB_OUT)).get("stamp") == stamp:
+                print("sb5m.json already has the session of", stamp); return
+        except Exception:
+            pass
+    out = {"stamp": stamp, "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "days": SB_DAYS, "symbols": {}}
+    for name, ysym, pip in PAIRS:
+        try:
+            x = clean_df(fetch(ysym, "5m", "1mo"))
+            out["symbols"][name] = sb_days(x, 2 if pip >= 0.1 else 3 if pip >= 0.01 else 5)
+        except Exception as e:
+            print(name, "5m history failed:", e)
+    if out["symbols"]:
+        json.dump(out, open(SB_OUT, "w"), separators=(",", ":"))
+        print("wrote", SB_OUT, os.path.getsize(SB_OUT), "bytes")
+
+
 def main(loader=fetch_yahoo):
     out = {"updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "engine": ENGINE, "near": NEAR, "pairs": []}
     for name, ysym, pip in PAIRS:
@@ -489,6 +530,11 @@ def main(loader=fetch_yahoo):
             print(name, "failed:", e)
     if not out["pairs"]:
         print("nothing downloaded; keeping the old file"); sys.exit(0)
+    if loader is fetch_yahoo:
+        try:
+            sb_history()
+        except Exception as e:
+            print("Silver Bullet history failed:", e)
     # skip the commit when the market is closed (nothing new since last run)
     if os.path.exists(OUT):
         try:

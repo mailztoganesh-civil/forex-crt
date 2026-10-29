@@ -44,11 +44,11 @@ jobs:
           node forex/tests/run_tests.js
       - name: Scan
         run: python -u scripts/forex_crt.py
-      - name: Commit forex/data/crt.json
+      - name: Commit forex/data (crt.json, sb5m.json)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add forex/data/crt.json
+          git add forex/data/
           if git diff --cached --quiet; then echo "No changes"; exit 0; fi
           git commit -m "Forex CRT scan $(date -u +%Y-%m-%dT%H:%MZ)"
           for i in 1 2 3; do git pull --rebase && git push && break; sleep 10; done

@@ -229,3 +229,18 @@ class FillSides(unittest.TestCase):
         self.assertFalse(r["filled"])
         r = SB.simulate(s, self.bars([[0, 1.1010, 1.1012, 1.1000 - hs, 1.1005], [300, 1.1000, 1.1001, 1.0950 + hs * 0.5, 1.0960]]), "EURUSD")
         self.assertTrue(r["filled"]); self.assertEqual(r["how"], "stop")
+
+
+class SilverBulletHistory(unittest.TestCase):
+    """sb5m.json: last SB_DAYS New York sessions, 00:00-16:00 NY; rewritten once per finished session"""
+    def test_days_and_stamp(self):
+        import pandas as pd
+        idx = pd.date_range("2026-10-19 00:00", "2026-10-29 23:55", freq="5min", tz="America/New_York").tz_convert("UTC")
+        df = pd.DataFrame({"Open": 1.0, "High": 1.1, "Low": 0.9, "Close": 1.0}, index=idx)
+        rows = F.sb_days(df, 5, days=3)
+        ny = pd.to_datetime([r[0] for r in rows], unit="s", utc=True).tz_convert("America/New_York")
+        self.assertEqual(sorted(set(ny.date.astype(str))), ["2026-10-27", "2026-10-28", "2026-10-29"])
+        self.assertTrue(((ny.hour * 60 + ny.minute) < 965).all() and (ny.hour * 60 + ny.minute).min() == 0)
+        self.assertEqual(F.sb_stamp(pd.Timestamp("2026-10-29 20:09", tz="UTC")), "2026-10-28")   # 16:09 NY (EDT): today not finished
+        self.assertEqual(F.sb_stamp(pd.Timestamp("2026-10-29 20:10", tz="UTC")), "2026-10-29")
+        self.assertEqual(F.sb_stamp(pd.Timestamp("2026-12-01 21:10", tz="UTC")), "2026-12-01")   # 16:10 NY in winter (EST)

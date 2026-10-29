@@ -88,6 +88,7 @@
   .sbst { display:inline-block; padding:2px 7px; border-radius:999px; font-size:12px; font-weight:700; background:var(--tint); color:var(--ink2); }
   .sb-IN_TRADE, .sb-ORDER { background:var(--green); color:#fff; } .sb-RAID { background:var(--amber); color:#fff; } .sb-WATCH { background:var(--blue); color:#fff; }
   .sb-TARGET { background:var(--blue); color:#fff; } .sb-STOPPED { background:var(--red); color:#fff; }
+  #sbHist tr.sel td { background:var(--tint); font-weight:700; } #sbHist tr[data-sbday] { cursor:pointer; }
   .sbwarn { border-left:4px solid var(--amber); font-size:13px; line-height:1.5; } .sbwarn a { color:var(--blue); }
   .cnav { display:flex; gap:4px; margin:0 0 4px; overflow-x:auto; scrollbar-width:none; }
   .cnav button { flex:0 0 auto; min-width:34px; height:30px; padding:0 9px; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; font-size:13px; font-weight:700; }
@@ -284,6 +285,7 @@
     <div class="hd"><h3 id="sbTitle">NAS100</h3><span class="badge" id="sbBadge"></span><button class="x" id="sbClose" type="button">Close</button><div class="trade" id="sbTrade"></div></div>
     <div class="charts"><div><div class="cap">5m – New York session: liquidity, 10–11 window, raid, MSS, FVG, order</div><canvas id="sbCv" aria-label="5 minute Silver Bullet chart"></canvas></div></div>
     <div class="lv" id="sbLv"></div>
+    <section class="card" id="sbHist"></section>
   </div>
 </div>
 <div class="sheet" id="swSheet" hidden>
@@ -300,14 +302,14 @@
     <div class="muted" id="swWhy"></div>
   </div>
 </div>
-<script src="chartnav.js?v=24"></script>
-<script src="sweep.js?v=24"></script>
-<script src="sb.js?v=24"></script>
-<script src="live.js?v=24"></script>
-<script src="app.js?v=24"></script>
-<script src="sweep-ui.js?v=24"></script>
-<script src="export.js?v=24"></script>
-<script src="sb-ui.js?v=24"></script>
+<script src="chartnav.js?v=25"></script>
+<script src="sweep.js?v=25"></script>
+<script src="sb.js?v=25"></script>
+<script src="live.js?v=25"></script>
+<script src="app.js?v=25"></script>
+<script src="sweep-ui.js?v=25"></script>
+<script src="export.js?v=25"></script>
+<script src="sb-ui.js?v=25"></script>
 <script>
 if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>
