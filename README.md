@@ -9,3 +9,14 @@ Forex screener PWA: Candle Range Theory (CRT) setups and ICT liquidity sweeps (1
 - Live prices come from the Cloudflare Worker forex-proxy (source kept in the ganesh-charts repo, `forex/worker`).
 
 Moved from mailztoganesh-civil/ganesh-charts (`forex/`).
+
+## WhatsApp alerts
+
+`scripts/alerts.py` runs after every scan and sends one WhatsApp message (via CallMeBot) for each new
+CRT formed (4H, D, W) and each new sweep ENTRY_READY setup (grade B or better). Sent alerts are kept in
+`forex/data/alerts_sent.json` so nothing is sent twice.
+
+Setup: get a CallMeBot key (callmebot.com → WhatsApp), then add repo secrets `CALLMEBOT_PHONE`
+(e.g. 971501234567) and `CALLMEBOT_APIKEY`. Test: Actions → Forex CRT scan → Run workflow → tick
+"Only send a WhatsApp test message". Optional repo variables: `ALERT_TFS` (default `4H,D,W`),
+`ALERT_SWEEPS` (default `D,4H,2H`), `ALERT_MIN_GRADE` (default `B`).

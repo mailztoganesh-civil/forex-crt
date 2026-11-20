@@ -10,6 +10,7 @@ on:
       - "scripts/test_forex_crt.py"
       - "scripts/make_parity_fixture.py"
       - "scripts/sweep4h.py"
+      - "scripts/alerts.py"
       - "scripts/make_sweep_fixture.py"
       - "forex/sweep.js"
       - "scripts/sweep_replay_check.py"
@@ -19,7 +20,12 @@ on:
   schedule:
     - cron: "4,34 * * * 1-5"
     - cron: "4,34 21-23 * * 0"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Only send a WhatsApp test message"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -29,7 +35,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  whatsapp-test:
+    if: ${{ inputs.test_alert }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Send a WhatsApp test message
+        env:
+          CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+          CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+        run: python scripts/alerts.py --test
+
   scan:
+    if: ${{ !inputs.test_alert }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -44,7 +65,15 @@ jobs:
           node forex/tests/run_tests.js
       - name: Scan
         run: python -u scripts/forex_crt.py
-      - name: Commit forex/data (crt.json, sb5m.json)
+      - name: WhatsApp alerts (new CRT formed / sweep entry setups)
+        env:
+          CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+          CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+          ALERT_TFS: ${{ vars.ALERT_TFS }}
+          ALERT_SWEEPS: ${{ vars.ALERT_SWEEPS }}
+          ALERT_MIN_GRADE: ${{ vars.ALERT_MIN_GRADE }}
+        run: python -u scripts/alerts.py
+      - name: Commit forex/data (crt.json, sb5m.json, alerts_sent.json)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
