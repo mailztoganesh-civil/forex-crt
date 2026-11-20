@@ -123,8 +123,10 @@ const server = http.createServer((req, res) => {
   check("target switch: 2R", await p.$eval("#sbTable h2", e => /target: 2R/.test(e.innerText)));
   await p.evaluate(() => document.querySelector('#sbTarget [data-v="dol"]').click());
   check("phone: no horizontal page overflow", await p.evaluate(() => document.scrollingElement.scrollWidth <= innerWidth + 1));
-  for (const t of ["crt", "sweep", "sb"]) { await p.evaluate(t => document.querySelector(`#appTab [data-tab="${t}"]`).click(), t); await p.waitForTimeout(150);
-    check(`tab ${t} shows its view only`, await p.evaluate(t => ({ crt: "#crtView", sweep: "#swView", sb: "#sbView" }[t] && ["#crtView", "#swView", "#sbView"].every(v => document.querySelector(v).hidden === (v !== { crt: "#crtView", sweep: "#swView", sb: "#sbView" }[t]))), t)); }
+  const VIEWS = { crt: "#crtView", sweep: "#swView", sb: "#sbView", stoic: "#stView" };
+  for (const t of Object.keys(VIEWS)) { await p.evaluate(t => document.querySelector(`#appTab [data-tab="${t}"]`).click(), t); await p.waitForTimeout(150);
+    check(`tab ${t} shows its view only`, await p.evaluate(([t, V]) => Object.values(V).every(v => document.querySelector(v).hidden === (v !== V[t])), [t, VIEWS]));
+    check(`tab ${t}: no horizontal page overflow`, await p.evaluate(() => document.scrollingElement.scrollWidth <= innerWidth + 1)); }
   check("no page errors", errs.length === 0, errs.slice(0, 3));
   await b.close(); server.close();
   const fail = R.filter(r => !r.ok); for (const r of R) console.log((r.ok ? "PASS " : "FAIL ") + r.n + (r.ok ? "" : "  " + JSON.stringify(r.info)));

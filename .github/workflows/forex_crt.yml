@@ -11,6 +11,8 @@ on:
       - "scripts/make_parity_fixture.py"
       - "scripts/sweep4h.py"
       - "scripts/alerts.py"
+      - "scripts/stoic_events.js"
+      - "forex/stoic.js"
       - "scripts/make_sweep_fixture.py"
       - "forex/sweep.js"
       - "scripts/sweep_replay_check.py"
@@ -64,6 +66,7 @@ jobs:
         run: |
           python -m unittest scripts/test_forex_crt.py
           node forex/tests/run_tests.js
+          node forex/tests/stoic_test.js
       - name: Scan
         run: python -u scripts/forex_crt.py
       - name: WhatsApp alerts (new CRT formed / sweep entry setups)
@@ -74,6 +77,7 @@ jobs:
           ALERT_TFS: ${{ vars.ALERT_TFS }}
           ALERT_SWEEPS: ${{ vars.ALERT_SWEEPS }}
           ALERT_MIN_GRADE: ${{ vars.ALERT_MIN_GRADE }}
+          ALERT_STOIC: ${{ vars.ALERT_STOIC }}
         run: python -u scripts/alerts.py
       - name: Commit forex/data (crt.json, sb5m.json, alerts_sent.json)
         run: |

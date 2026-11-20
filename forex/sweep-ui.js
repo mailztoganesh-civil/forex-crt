@@ -501,9 +501,9 @@ function alerts() {
 /* ---------- tabs and theme ---------- */
 function setTab(t) {
   document.querySelectorAll("#appTab button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
-  if (!["crt", "sweep", "sb"].includes(t)) t = "crt";
-  $("#crtView").hidden = t !== "crt"; $("#swView").hidden = t !== "sweep"; $("#sbView").hidden = t !== "sb"; ls.set("fx-tab", t);
-  document.querySelector("header h1").textContent = t === "sweep" ? "ICT Sweeps" : t === "sb" ? "Silver Bullet" : "Forex CRT";
+  if (!["crt", "sweep", "sb", "stoic"].includes(t)) t = "crt";
+  $("#crtView").hidden = t !== "crt"; $("#swView").hidden = t !== "sweep"; $("#sbView").hidden = t !== "sb"; $("#stView").hidden = t !== "stoic"; ls.set("fx-tab", t);
+  document.querySelector("header h1").textContent = t === "sweep" ? "ICT Sweeps" : t === "sb" ? "Silver Bullet" : t === "stoic" ? "Stoic SBS" : "Forex CRT";
 }
 function applyTheme(m) {
   if (m === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = m;

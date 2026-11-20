@@ -27,7 +27,7 @@ PAIRS = [  # (name, yahoo symbol, pip size)
 ]
 NEAR = 0.25          # "anticipated" when within 25% of the previous candle's range
 KEEP = {"1H": 100, "4H": 100, "D": 60, "W": 60, "M": 24}   # candles per timeframe sent to the app
-LTF_KEEP = {"15m": 320, "5m": 320}                    # lower-timeframe candles for the HTF+LTF view
+LTF_KEEP = {"15m": 320, "5m": 600}                    # lower-timeframe candles for the HTF+LTF view (5m: ~2 days for the Stoic range + SMA200)
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "forex", "data", "crt.json")
 SB_OUT = os.path.join(os.path.dirname(OUT), "sb5m.json")   # Silver Bullet tab: 5m history of the last SB_DAYS NY sessions
 SB_DAYS = 10
@@ -445,11 +445,12 @@ def fetch_yahoo(symbol, interval="1h", period="1y"):
     return d
 
 
-def sb_days(df, dg, days=SB_DAYS):
-    """5-minute candles of the last `days` New York sessions, 00:00-16:00 NY (what the Silver Bullet chart needs)."""
+def sb_days(df, dg, days=SB_DAYS, evening=False):
+    """5-minute candles of the last `days` New York sessions, 00:00-16:00 NY (what the Silver Bullet chart needs);
+    evening=True also keeps 18:00-24:00 NY (the Stoic tab's overnight range). The Silver Bullet tab drops those itself."""
     ny = df.index.tz_convert("America/New_York")
     mins = ny.hour * 60 + ny.minute
-    keep = mins < 965
+    keep = (mins < 965) | ((mins >= 1080) if evening else False)
     d, nyk = df[keep], ny[keep]
     dates = sorted(set(nyk.date))[-days:]
     sel = pd.Series(nyk.date, index=d.index).isin(dates).values
@@ -476,7 +477,7 @@ def sb_history(fetch=fetch_yahoo, now=None):
     for name, ysym, pip in PAIRS:
         try:
             x = clean_df(fetch(ysym, "5m", "1mo"))
-            out["symbols"][name] = sb_days(x, 2 if pip >= 0.1 else 3 if pip >= 0.01 else 5)
+            out["symbols"][name] = sb_days(x, 2 if pip >= 0.1 else 3 if pip >= 0.01 else 5, evening=True)
         except Exception as e:
             print(name, "5m history failed:", e)
     if out["symbols"]:

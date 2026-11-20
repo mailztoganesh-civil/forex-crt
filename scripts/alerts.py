@@ -4,6 +4,7 @@ Reads forex/data/crt.json and sends ONE WhatsApp message (via CallMeBot) listing
 the last run:
   - CRT FORMED      a pair/timeframe in ALERT_TFS reached "formed" (C2 closed back inside C1)
   - SWEEP ENTRY     an ICT sweep setup (D->1H, 4H->15m, 2H->5m) reached ENTRY_READY (limit order known)
+  - STOIC           a Stoic tab SBS / PTB limit order was placed or filled (forex/stoic.js via scripts/stoic_events.js)
 
 Already-sent alerts are kept in forex/data/alerts_sent.json, so each setup is sent once.
 The first run (no alerts_sent.json yet) only records what is on screen and sends nothing.
@@ -15,9 +16,10 @@ Settings (GitHub repo -> Settings -> Secrets and variables -> Actions):
   variable ALERT_TFS          CRT timeframes to alert on (default "4H,D,W")
   variable ALERT_SWEEPS       sweep screeners to alert on (default "D,4H,2H"; empty = off)
   variable ALERT_MIN_GRADE    lowest sweep grade to send: A, B or C (default "B")
+  variable ALERT_STOIC        Stoic setups to alert on (default "SBS,PTB"; empty = off)
 Run with --test to send a test message.
 """
-import json, os, sys, time, urllib.parse, urllib.request
+import json, os, subprocess, sys, time, urllib.parse, urllib.request
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -84,6 +86,28 @@ def events(crt, tfs, sweep_tfs, min_grade):
     return out
 
 
+def stoic_events(kinds):
+    """open Stoic orders / trades from the JS engine (needs node); [] when node or the script is missing"""
+    if not kinds:
+        return []
+    try:
+        res = subprocess.run(["node", os.path.join(HERE, "stoic_events.js")], capture_output=True, text=True, timeout=120)
+        rows = json.loads(res.stdout or "[]")
+    except Exception as e:
+        print("Stoic events failed:", e); return []
+    out = []
+    for r in rows:
+        if r["kind"] not in kinds:
+            continue
+        f = lambda v: fmt(v, r.get("pip", 0.0001))
+        buy = r["d"] == 1
+        state = "FILLED - in trade" if r["stage"] == "IN_TRADE" else "limit order placed"
+        text = (f"{'🔷' if buy else '🔶'} {r['sym']} Stoic {r['kind']} {'BUY' if buy else 'SELL'} {f(r['entry'])} - {state}\n"
+                f"   SL {f(r['stop'])} | TP {f(r['tp'])}" + (f" | RR {r['rr']:.1f}" if r.get("rr") is not None else ""))
+        out.append(("stoic|" + r["key"], text))
+    return out
+
+
 def send(text, phone, key):
     link = os.environ.get("WHATSAPP_LINK", "").strip()
     if link:   # any bot link (CallMeBot, Whatabot ...): its "text" parameter is replaced by the message
@@ -130,6 +154,7 @@ def main(argv=sys.argv[1:], sender=send_all):
     crt = json.load(open(CRT))
     evs = events(crt, env_list("ALERT_TFS", "4H,D,W"), env_list("ALERT_SWEEPS", "D,4H,2H"),
                  (os.environ.get("ALERT_MIN_GRADE") or "B").strip().upper())
+    evs += stoic_events(env_list("ALERT_STOIC", "SBS,PTB"))
     first = not os.path.exists(SENT)
     sent = [] if first else json.load(open(SENT)).get("keys", [])
     seen = set(sent)

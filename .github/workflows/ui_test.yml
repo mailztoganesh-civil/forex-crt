@@ -28,7 +28,9 @@ jobs:
           npm install --no-save playwright@1.55.0
           npx playwright install --with-deps chromium
       - name: Engine tests
-        run: node forex/tests/run_tests.js
+        run: |
+          node forex/tests/run_tests.js
+          node forex/tests/stoic_test.js
       - name: Chart UI test
         run: node forex/tests/ui_test.js
       - name: Silver Bullet tab UI test

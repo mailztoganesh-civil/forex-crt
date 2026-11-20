@@ -89,6 +89,8 @@
   .sb-IN_TRADE, .sb-ORDER { background:var(--green); color:#fff; } .sb-RAID { background:var(--amber); color:#fff; } .sb-WATCH { background:var(--blue); color:#fff; }
   .sb-TARGET { background:var(--blue); color:#fff; } .sb-STOPPED { background:var(--red); color:#fff; }
   #sbHist tr.sel td { background:var(--tint); font-weight:700; } #sbHist tr[data-sbday] { cursor:pointer; }
+  #stHist tr.sel td { background:var(--tint); font-weight:700; } #stHist tr[data-stday], #stTable tr[data-st] { cursor:pointer; }
+  #stTable .up { color:#2962FF; font-weight:700; } #stTable .dn { color:var(--red); font-weight:700; }
   .sbwarn { border-left:4px solid var(--amber); font-size:13px; line-height:1.5; } .sbwarn a { color:var(--blue); }
   .cnav { display:flex; gap:4px; margin:0 0 4px; overflow-x:auto; scrollbar-width:none; }
   .cnav button { flex:0 0 auto; min-width:34px; height:30px; padding:0 9px; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; font-size:13px; font-weight:700; }
@@ -146,7 +148,7 @@
   <button id="refresh" type="button" aria-label="Refresh">↻</button>
 </header>
 <main>
-  <div class="seg" id="appTab" style="grid-template-columns:repeat(3,1fr)" role="tablist" aria-label="Screener"><button data-tab="crt" class="on">CRT</button><button data-tab="sweep">ICT Sweeps</button><button data-tab="sb">Silver Bullet</button></div>
+  <div class="seg" id="appTab" style="grid-template-columns:repeat(4,1fr)" role="tablist" aria-label="Screener"><button data-tab="crt" class="on">CRT</button><button data-tab="sweep">ICT Sweeps</button><button data-tab="sb">Silver Bullet</button><button data-tab="stoic">Stoic SBS</button></div>
   <div id="crtView" style="display:grid;gap:12px;min-width:0">
   <div class="seg" id="tfSeg" role="tablist" aria-label="Timeframe">
     <button data-tf="1H">1H</button><button data-tf="4H" class="on">4H</button><button data-tf="D">Daily</button><button data-tf="W">Weekly</button><button data-tf="M">Monthly</button>
@@ -265,6 +267,23 @@
       <b>Grade</b> – one point each: swing ≥ 1.5 ATR, sweep 0.1–1.0 ATR, displacement ≥ 1.5 ATR, FVG zone, R:R ≥ 2. A = 4–5, B = 3, C = 0–2. Filters only hide setups; they never change what was detected.
     </section>
   </div>
+  <div id="stView" hidden style="display:grid;gap:12px;min-width:0">
+    <section class="card sbwarn"><b>Backtest so far (mechanical rules, 5m):</b> SBS with the 20/200 bias and the 61.8% limit was positive on NAS100 2020–26 (about +0.24R per trade to the new high, +0.42R at 3R, but only ~40 trades);
+      US30 and gold showed no edge; PTB broke even or lost everywhere. Study or demo-trade it before real money.</section>
+    <div class="muted" id="stClock" style="margin:0 2px"></div>
+    <div class="seg two" id="stTarget" aria-label="Target"><button data-v="swing">Target: SBS new high · PTB 2R</button><button data-v="3R">Target: 3R</button></div>
+    <section class="card" id="stTable"></section>
+    <section class="card legend">
+      <b>Rules</b> (code: <code>forex/stoic.js</code>) – New York time, 5-minute candles, closed candles only.<br>
+      <b>Range</b> – the high / low from 18:00 NY (evening before) to 09:30 NY. Session 09:30–16:00; orders fill only 09:30–15:30, open trades close at the 15:55 candle.<br>
+      <b>Bias</b> – close &gt; SMA20 &gt; SMA200 = bullish (longs only), close &lt; SMA20 &lt; SMA200 = bearish (shorts only), otherwise none.<br>
+      <b>SBS</b> (Swing Breakout Sequence, long; short is the mirror) – <b>1</b> a close above the last 5m swing high with bullish bias · <b>2</b> the first pullback swing low · <b>3</b> a new high above the breakout leg ·
+      <b>4</b> price takes out the pullback low (but not the leg low) → BUY limit at 61.8% of the leg, stop at the leg low, target the new high (or 3R). Cancelled if the new high trades first, after 3 hours or at 15:30. No sweep within 4 hours of the breakout = start over.<br>
+      <b>PTB</b> (break and retest) – the first 09:30–15:30 close above the range high with bullish bias → BUY limit at the range high, stop at the last swing low before the break, target 2R (or 3R). Cancelled if the target trades first, after 2 hours or at 15:30. One per side per day.<br>
+      <b>Chart</b> – blue / red candles, brown range lines and 200MA, amber 20MA, numbers 1–4 = SBS steps, numbered ▲▼ = simulated entries, dots = exits, dashed red / blue = stop / target. Fills are simulated from candle high/low without costs; a fill candle that also reaches the stop counts as a stop.<br>
+      <b>WhatsApp</b> – new SBS / PTB orders are sent with the CRT alerts (GitHub scan every 30 minutes, so they can arrive late).
+    </section>
+  </div>
 </main>
 
 <div class="sheet" id="sheet" hidden>
@@ -302,14 +321,24 @@
     <div class="muted" id="swWhy"></div>
   </div>
 </div>
-<script src="chartnav.js?v=25"></script>
-<script src="sweep.js?v=25"></script>
-<script src="sb.js?v=25"></script>
-<script src="live.js?v=25"></script>
-<script src="app.js?v=25"></script>
-<script src="sweep-ui.js?v=25"></script>
-<script src="export.js?v=25"></script>
-<script src="sb-ui.js?v=25"></script>
+<div class="sheet" id="stSheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="stTitle">
+    <div class="hd"><h3 id="stTitle">NAS100</h3><span class="badge" id="stBadge"></span><button class="x" id="stClose" type="button">Close</button><div class="trade" id="stTrade"></div></div>
+    <div class="charts"><div><div class="cap">5m – range 18:00–09:30 NY, 20 / 200 SMA, SBS steps 1–4, PTB, orders</div><canvas id="stCv" aria-label="5 minute Stoic chart"></canvas></div></div>
+    <div class="lv" id="stLv"></div>
+    <section class="card" id="stHist"></section>
+  </div>
+</div>
+<script src="chartnav.js?v=26"></script>
+<script src="sweep.js?v=26"></script>
+<script src="sb.js?v=26"></script>
+<script src="live.js?v=26"></script>
+<script src="app.js?v=26"></script>
+<script src="sweep-ui.js?v=26"></script>
+<script src="export.js?v=26"></script>
+<script src="sb-ui.js?v=26"></script>
+<script src="stoic.js?v=26"></script>
+<script src="stoic-ui.js?v=26"></script>
 <script>
 if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>
