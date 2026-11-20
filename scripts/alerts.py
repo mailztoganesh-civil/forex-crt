@@ -14,9 +14,9 @@ Settings (GitHub repo -> Settings -> Secrets and variables -> Actions):
   secret   CALLMEBOT_APIKEY   the key CallMeBot sends you
   secret   WHATSAPP_LINK      OR: the full link a WhatsApp bot (Whatabot, CallMeBot) sends you; used instead of the two above
   variable ALERT_TFS          CRT timeframes to alert on (default "4H,D,W")
-  variable ALERT_SWEEPS       sweep screeners to alert on (default "D,4H,2H"; empty = off)
+  variable ALERT_SWEEPS       sweep screeners to alert on (default "D,4H,2H"; "none" = off)
   variable ALERT_MIN_GRADE    lowest sweep grade to send: A, B or C (default "B")
-  variable ALERT_STOIC        Stoic setups to alert on (default "SBS,PTB"; empty = off)
+  variable ALERT_STOIC        Stoic setups to alert on (default "SBS,PTB"; "none" = off)
 Run with --test to send a test message.
 """
 import json, os, subprocess, sys, time, urllib.parse, urllib.request
@@ -35,9 +35,9 @@ SWEEP_LTF = {"D": "1H", "4H": "15m", "2H": "5m"}
 
 
 def env_list(name, default):
-    v = os.environ.get(name)
-    v = default if v is None else v
-    return [x.strip() for x in v.split(",") if x.strip()]
+    """comma list from an env var; unset or empty (an unset GitHub variable arrives as "") = default, "none" = off"""
+    v = (os.environ.get(name) or "").strip() or default
+    return [] if v.lower() == "none" else [x.strip() for x in v.split(",") if x.strip()]
 
 
 def fmt(v, pip):
