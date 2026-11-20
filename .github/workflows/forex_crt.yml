@@ -47,6 +47,7 @@ jobs:
         env:
           CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
           CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+          WHATSAPP_LINK: ${{ secrets.WHATSAPP_LINK }}
         run: python scripts/alerts.py --test
 
   scan:
@@ -69,6 +70,7 @@ jobs:
         env:
           CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
           CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+          WHATSAPP_LINK: ${{ secrets.WHATSAPP_LINK }}
           ALERT_TFS: ${{ vars.ALERT_TFS }}
           ALERT_SWEEPS: ${{ vars.ALERT_SWEEPS }}
           ALERT_MIN_GRADE: ${{ vars.ALERT_MIN_GRADE }}

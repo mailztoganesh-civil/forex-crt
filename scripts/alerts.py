@@ -11,6 +11,7 @@ The first run (no alerts_sent.json yet) only records what is on screen and sends
 Settings (GitHub repo -> Settings -> Secrets and variables -> Actions):
   secret   CALLMEBOT_PHONE    your WhatsApp number with country code, e.g. 971501234567
   secret   CALLMEBOT_APIKEY   the key CallMeBot sends you
+  secret   WHATSAPP_LINK      OR: the full link a WhatsApp bot (Whatabot, CallMeBot) sends you; used instead of the two above
   variable ALERT_TFS          CRT timeframes to alert on (default "4H,D,W")
   variable ALERT_SWEEPS       sweep screeners to alert on (default "D,4H,2H"; empty = off)
   variable ALERT_MIN_GRADE    lowest sweep grade to send: A, B or C (default "B")
@@ -84,8 +85,14 @@ def events(crt, tfs, sweep_tfs, min_grade):
 
 
 def send(text, phone, key):
-    url = ("https://api.callmebot.com/whatsapp.php?" +
-           urllib.parse.urlencode({"phone": phone, "text": text, "apikey": key}))
+    link = os.environ.get("WHATSAPP_LINK", "").strip()
+    if link:   # any bot link (CallMeBot, Whatabot ...): its "text" parameter is replaced by the message
+        u = urllib.parse.urlsplit(link)
+        q = [(k, v) for k, v in urllib.parse.parse_qsl(u.query, keep_blank_values=True) if k.lower() != "text"]
+        url = urllib.parse.urlunsplit(u._replace(query=urllib.parse.urlencode(q + [("text", text)])))
+    else:
+        url = ("https://api.callmebot.com/whatsapp.php?" +
+               urllib.parse.urlencode({"phone": phone, "text": text, "apikey": key}))
     with urllib.request.urlopen(url, timeout=30) as r:
         body = r.read().decode("utf-8", "replace")
     if r.status != 200 or "error" in body.lower() and "queued" not in body.lower():
@@ -109,10 +116,12 @@ def send_all(text, phone, key):
 def main(argv=sys.argv[1:], sender=send_all):
     phone = os.environ.get("CALLMEBOT_PHONE", "").strip().lstrip("+")
     apikey = os.environ.get("CALLMEBOT_APIKEY", "").strip()
+    if os.environ.get("WHATSAPP_LINK", "").strip():
+        phone, apikey = phone or "link", apikey or "link"
     now = datetime.now(timezone.utc).astimezone(TZ).strftime("%d %b %H:%M")
     if "--test" in argv:
         if not (phone and apikey):
-            print("CALLMEBOT_PHONE / CALLMEBOT_APIKEY secrets are not set"); return 1
+            print("WHATSAPP_LINK or CALLMEBOT_PHONE / CALLMEBOT_APIKEY secrets are not set"); return 1
         sender(f"✅ Forex CRT alerts are working ({now} Dubai)\n{APP}", phone, apikey)
         print("test message sent"); return 0
 

@@ -16,7 +16,7 @@ Moved from mailztoganesh-civil/ganesh-charts (`forex/`).
 CRT formed (4H, D, W) and each new sweep ENTRY_READY setup (grade B or better). Sent alerts are kept in
 `forex/data/alerts_sent.json` so nothing is sent twice.
 
-Setup: get a CallMeBot key (callmebot.com → WhatsApp), then add repo secrets `CALLMEBOT_PHONE`
+Setup (either one, both free): add repo secret `WHATSAPP_LINK` = the full link Whatabot or CallMeBot sends you, or get a CallMeBot key (callmebot.com → WhatsApp), then add repo secrets `CALLMEBOT_PHONE`
 (e.g. 971501234567) and `CALLMEBOT_APIKEY`. Test: Actions → Forex CRT scan → Run workflow → tick
 "Only send a WhatsApp test message". Optional repo variables: `ALERT_TFS` (default `4H,D,W`),
 `ALERT_SWEEPS` (default `D,4H,2H`), `ALERT_MIN_GRADE` (default `B`).
